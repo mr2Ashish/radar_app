@@ -86,7 +86,7 @@ def gen_pdf(l, mode, quote_text, bantscore, fatsat, pay_terms):
     c.drawText(t2)
 
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(40, 505, "3. Value-Add & Strategic Advantage:")
+    c.drawString(40, 505, "3. 100% Problem Resolution Roadmap (Why Aryavarta):")
     c.setFont("Helvetica", 9)
     t3 = c.beginText(40, 490)
     t3.textLines(f"- {l.get('why_us')}\n- 100% Indian Electricity (IE) Rule compliance & local Chikhali engineering response.")
@@ -112,23 +112,32 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode:
         time.sleep(0.3)
-        mock_companies = [
-            ("Praj Industries Ltd", "Bio-Ethanol Plant Automation & Power Distribution Setup", "Bhosari MIDC, Pune", 18.6270, 73.8340, 
-             "Custom MCC, PCC, and VFD control panels complete with sundry cabling accessories (cable trays, glands, lugs, ferrules, terminal blocks) tailored for hazardous continuous processing environments.", 
-             "Experiencing severe power factor penalties, unoptimized motor load synchronization, and harmonic distortion across distillation drives causing recurring thermal trips and process downtime.", 
-             "Aryavarta provides fully engineered, IE-compliant panels manufactured only 9 km away in Chikhali, offering same-day factory inspections, FAT sign-offs, and immediate replacement part delivery.", 
-             "info@praj.net", "+91 20 7180 2000", "www.praj.net"),
-            ("Tata Motors Ltd", "Assembly Line Maintenance Overhaul & Drive Commissioning", "Chakan MIDC, Pune", 18.7500, 73.8500, 
-             "Certified senior Electrical & Instrumentation (E&I) Site Engineers equipped for high-speed PLC drive synchronization, busbar torque testing, and 24/7 breakdown troubleshooting.", 
-             "Tight 72-hour scheduled plant shutdown window where any uncalibrated sensor drift, drive communication mismatch, or cabling fault causes massive assembly line production delays.", 
-             "Immediate dispatch of certified testing engineers from our Chikhali facility within 25 minutes, backed by in-house test benches and complete instrumentation diagnostic tooling.", 
-             "maintenance@tatamotors.com", "+91 20 6613 1111", "tatamotors.com"),
-            ("Thermax Ltd", "Industrial Boiler Automation & Control Overhaul", "Chinchwad MIDC, Pune", 18.6445, 73.8055, 
-             "Turnkey PLC automation control panels, customized flame-proof junction boxes, and temperature transmitter integration.", 
-             "Frequent boiler tripping due to aging manual switchgear and lack of automated PID burner loop controls, degrading energy efficiency.", 
-             "Custom CAD single-line diagram design, localized panel fabrication in Pune, and rigorous Factory Acceptance Testing (FAT) prior to site delivery.", 
-             "enquiry@thermaxglobal.com", "+91 20 6605 1200", "thermaxglobal.com")
-        ]
+        if mode == "panels":
+            mock_companies = [
+                ("Praj Industries Ltd", "Bio-Ethanol Plant Automation & Power Distribution Setup", "Bhosari MIDC, Pune", 18.6270, 73.8340, 
+                 "Custom MCC, PCC, and VFD control panels complete with sundry cabling accessories (cable trays, glands, lugs, ferrules, terminal blocks) tailored for hazardous continuous processing environments.", 
+                 "Experiencing severe power factor penalties, unoptimized motor load synchronization, and harmonic distortion across distillation drives causing recurring thermal trips and process downtime.", 
+                 "Aryavarta delivers a 100% resolved power distribution setup: custom heavy-gauge IE-compliant panels engineered 9 km away in Chikhali, integrated with tuned harmonic filters, active APFC banks, and on-site FAT load testing to completely eliminate power factor penalties and nuisance tripping.", 
+                 "info@praj.net", "+91 20 7180 2000", "www.praj.net"),
+                ("Thermax Ltd", "Industrial Boiler Automation & Control Overhaul", "Chinchwad MIDC, Pune", 18.6445, 73.8055, 
+                 "Turnkey PLC automation control panels, customized flame-proof junction boxes, and temperature transmitter integration.", 
+                 "Frequent boiler tripping due to aging manual switchgear and lack of automated PID burner loop controls, degrading energy efficiency.", 
+                 "Aryavarta guarantees 100% stability by replacing manual switchgear with automated PLC/SCADA control panels, precision transmitter calibration, and comprehensive interlock testing before handover.", 
+                 "enquiry@thermaxglobal.com", "+91 20 6605 1200", "thermaxglobal.com")
+            ]
+        else:
+            mock_companies = [
+                ("Tata Motors Ltd", "Assembly Line Maintenance Overhaul & Drive Commissioning", "Chakan MIDC, Pune", 18.7500, 73.8500, 
+                 "Certified senior Electrical & Instrumentation (E&I) Site Engineers equipped for high-speed PLC drive synchronization, busbar torque testing, sensor loop calibration, and 24/7 breakdown troubleshooting.", 
+                 "Tight 72-hour scheduled plant shutdown window where uncalibrated sensor drift, communication bus faults, or drive parameter mismatches risk causing catastrophic assembly line restart delays.", 
+                 "Aryavarta's engineers solve 100% of this challenge through a 4-step on-site execution: (1) Pre-shutdown Megger insulation & busbar torque audits, (2) 4-20mA loop calibration and sensor validation, (3) Real-time VFD drive parameter tuning & Profinet communication verification, and (4) Full-load trial run supervision with zero delay from our Chikhali hub.", 
+                 "maintenance@tatamotors.com", "+91 20 6613 1111", "tatamotors.com"),
+                ("Larsen & Toubro (L&T)", "Substation Switchgear & Instrumentation Commissioning", "Talegaon MIDC, Pune", 18.7320, 73.6760, 
+                 "Deploying certified E&I testing and commissioning engineers with primary/secondary injection kits, insulation testers, and high-voltage calibration tools.", 
+                 "Stringent Third-Party Inspection (TPI) deadlines and complex CT/PT wiring interlocks risking client penalties and handover rejection.", 
+                 "Aryavarta engineers guarantee 100% error-free commissioning: conducting end-to-end scheme testing, secondary injection checks, relay coordination curve verification, and compiling complete TPI-ready test reports for immediate sign-off.", 
+                 "infodesk@larsentoubro.com", "+91 22 6752 5656", "larsentoubro.com")
+            ]
         
         leads = []
         for i in range(min(max_leads, len(mock_companies))):
@@ -136,9 +145,9 @@ def scan_engine(mode):
             d = calc_dist(lat, lon)
             leads.append({
                 "company": comp, "project": proj, "location": loc, "lat": lat, "lon": lon,
-                "trust_score": "99% Verified (Industrial Directory)", "credibility_proof": "Verified Manufacturing Plant Notice",
+                "trust_score": "99% Verified (Industrial Notice)", "credibility_proof": "Verified Manufacturing Plant Operation",
                 "source_name": "Maharashtra Industrial News", "source_url": f"https://{wb}",
-                "source_title": f"{comp} Expansion Project",
+                "source_title": f"{comp} Project Expansion & Upgrade",
                 "offer": off, "problem": prob, "why_us": why, "dist": d,
                 "maps": build_maps_url(comp, loc),
                 "link": f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(comp + ' procurement maintenance')}",
@@ -172,11 +181,11 @@ def scan_engine(mode):
     Select up to {max_leads} distinct, verified real corporate industrial projects from: {json.dumps(raw_news)}.
     Output a JSON list of objects with exact keys: company, project, location, lat, lon, trust_score, credibility_proof, offer, problem, why_us, source_url, source_title, source_name.
     
-    DETAILED WRITING GUIDELINES:
-    - "project": State the explicit plant project name and physical scope.
-    - "problem": Describe in detail the exact operational, electrical, or downtime bottlenecks the client faces (power quality issues, shutdown risks, outdated switchgear, control lags).
-    - "offer": Detail the complete engineered solution from Aryavarta Automation (specific panel models like MCC/PCC/VFD, sundries like trays/glands, or certified E&I site engineers).
-    - "why_us": Highlight Aryavarta Automation's core value adds (manufacturing facility in Chikhali, Pune, 100% IE Rule compliance, FAT/SAT inspection readiness, rapid response).
+    DETAILED TECHNICAL REQUIREMENTS:
+    - "project": State the plant project name and physical scope.
+    - "problem": Describe in specific detail the exact electrical, operational, or downtime bottlenecks the client faces (e.g., sensor calibration drift, drive trips, tight shutdown windows, wiring errors, harmonic issues).
+    - "offer": Detail the complete technical deliverables from Aryavarta Automation ({focus}).
+    - "why_us": For E&I Site Engineers, explain explicitly in a clear, 100% problem-solving roadmap HOW our engineers completely eliminate the client's problem (e.g., pre-commissioning loop checks, relay/drive parameterization, torque audits, calibration, 24/7 site supervision, and rapid dispatch from Chikhali, Pune). For Panel Manufacturing, detail the exact fabrication quality, FAT testing, and proximity advantage that solves their power bottleneck 100%.
     - lat, lon: Approximate geographical coordinates.
     """
     try: 
@@ -224,7 +233,6 @@ def render_leads(leads, mode):
     kpi3.metric("📍 Operational Base", "Chikhali, Pune")
     st.divider()
 
-    # Dynamic CRM Payload Builder
     crm_sync_data = []
     for i, l in enumerate(filtered_leads):
         dist = l['dist']
@@ -333,8 +341,8 @@ def render_leads(leads, mode):
             with col1:
                 st.markdown(f"### 🏢 {l['project']}")
                 st.markdown(f"**📦 What We Offer:**\n{l['offer']}")
-                st.markdown(f"**🔧 Problem Solved:**\n{l['problem']}")
-                st.markdown(f"**🏆 Why Aryavarta Automation (Value Add):**\n{l['why_us']}")
+                st.markdown(f"**🔧 Client Operational Bottleneck:**\n{l['problem']}")
+                st.markdown(f"**🏆 Why Aryavarta Automation (100% Problem-Solving Roadmap):**\n{l['why_us']}")
                 st.markdown(f"[📍 Google Maps Route]({l['maps']}) | [💼 Search LinkedIn]({l['link']})")
                 
                 curr = "USD ($)" if is_export else "INR (₹)"
@@ -368,11 +376,11 @@ def render_leads(leads, mode):
                 pitch_angle = st.selectbox("🎯 Select Pitch Angle:", ["Standard Introduction & Profile", "Urgent Breakdown / Shutdown Support", "Turnkey Panel & Sundry Supply"], key=f"angle_{mode}_{i}")
                 
                 if pitch_angle == "Standard Introduction & Profile":
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nRegarding your {l['project']} in {l['location']}:\n\nAryavarta Automation (Chikhali, Pune) specializes in solving: {l['problem']}\n\nOur Solution: {l['offer']}\n\nValue Add: {l['why_us']} ({quote_text}).\n\nPlease check our profile: www.aryavartaautomation.com"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nRegarding your {l['project']} in {l['location']}:\n\nClient Bottleneck Identified: {l['problem']}\n\nAryavarta 100% Resolution: {l['why_us']}\n\nOur Scope: {l['offer']} ({quote_text}).\n\nPlease check our profile: www.aryavartaautomation.com"
                 elif pitch_angle == "Urgent Breakdown / Shutdown Support":
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nFor your shutdown at {l['location']}, Aryavarta Automation deploys certified E&I engineers to eliminate: {l['problem']}.\n\nOur engineers provide: {l['offer']}.\n\nLet us know your dispatch timeline!"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nFor your shutdown at {l['location']}, Aryavarta Automation deploys certified E&I engineers to guarantee zero downtime.\n\nProblem Solved: {l['problem']}\n\nExecution Plan: {l['why_us']}\n\nLet us know your dispatch timeline!"
                 else:
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nAryavarta Automation offers complete turnkey panel manufacturing ({quote_text}) to solve: {l['problem']}.\n\nWe provide 100% IE Rule compliance with {fatsat}.\n\nLet's connect!"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nAryavarta Automation offers complete turnkey panel manufacturing ({quote_text}) to eliminate: {l['problem']}.\n\nOur Technical Commitment: {l['why_us']} with {fatsat}.\n\nLet's connect!"
 
                 clean_phone = re.sub(r'[^0-9]', '', str(l['contact'].get('phone', '')))
                 wa_url = f"https://api.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(pitch_msg)}" if clean_phone else f"https://api.whatsapp.com/send?text={urllib.parse.quote(pitch_msg)}"
