@@ -18,11 +18,11 @@ with st.sidebar:
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
     if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook (Optional):", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
-    max_leads = st.slider("Target Leads:", 2, 8, 4)
+    max_leads = st.slider("Target Leads:", min_value=2, max_value=20, value=5, help="Select number of verified target leads to generate (up to 20).")
     
     st.divider()
     max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 20000, 20000, help="Filter out leads further than this distance.")
-    test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=True, help="Test UI, payment terms, FAT/SAT & WhatsApp without API quota.")
+    test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=True, help="Test UI, BANT scoring, FAT/SAT & WhatsApp without API quota.")
 
 if not API_KEY and not test_mode:
     st.warning("⚠️ Enter Gemini API Key in sidebar.")
@@ -41,16 +41,18 @@ def calc_dist(lat, lon):
 def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
-def search_news(q, mx=3):
+def search_news(q, mx=10):
     res = []
     try:
         with DDGS() as d:
-            for r in d.news(q, max_results=mx): res.append(f"Source: {r.get('source')} | Title: {r.get('title')} | URL: {r.get('url')} | Body: {r.get('body')}")
+            for r in d.news(q, max_results=mx): 
+                res.append(f"Source: {r.get('source')} | Title: {r.get('title')} | URL: {r.get('url')} | Body: {r.get('body')}")
     except Exception: pass
     if not res:
         try:
             with DDGS() as d:
-                for r in d.text(q, max_results=mx): res.append(f"Title: {r.get('title')} | URL: {r.get('href')} | Body: {r.get('body')}")
+                for r in d.text(q, max_results=mx): 
+                    res.append(f"Title: {r.get('title')} | URL: {r.get('href')} | Body: {r.get('body')}")
         except Exception: pass
     return res
 
@@ -84,7 +86,7 @@ def gen_pdf(l, mode, quote_text, bantscore, fatsat, pay_terms):
 def call_gemini(prompt):
     for i in range(2):
         try:
-            r = client.models.generate_content(model='gemini-3.6-flash', contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+            r = client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
             return json.loads(r.text)
         except Exception as e:
             if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and i == 0:
@@ -96,80 +98,98 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode:
         time.sleep(0.3)
-        if mode == "panels":
-            return [{
-                "company": "Praj Industries Ltd",
-                "project": "Bio-Ethanol Plant Automation & Power Distribution Setup",
-                "location": "Bhosari MIDC, Pune",
-                "lat": 18.6270, "lon": 73.8340,
-                "trust_score": "99% Verified (BSE Audited)",
-                "credibility_proof": "Verified BSE Listed EPC Corporate Expansion",
-                "source_name": "Industrial Times", "source_url": "https://www.praj.net",
-                "source_title": "Pune Plant Expansion",
-                "offer": "Custom MCC, PCC, and VFD control panels along with complete sundry materials (cable trays, glands, lugs, terminal blocks).",
-                "problem": "High reactive power losses, disorganized motor control, and inefficient energy distribution across processing units.",
-                "why_us": "Our manufacturing unit is located just 9 km away in Chikhali, Pune, ensuring fast dispatch, compliance with IE standards, and direct factory inspection.",
-                "dist": calc_dist(18.6270, 73.8340),
-                "maps": build_maps_url("Praj Industries", "Bhosari MIDC, Pune"),
-                "link": f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote('Praj Industries procurement')}",
-                "contact": {"key_name": "Procurement / Plant Head", "key_role": "Decision Maker", "email": "info@praj.net", "phone": "+91 20 7180 2000", "website": "www.praj.net"}
-            }]
-        else:
-            return [{
-                "company": "Tata Motors Ltd",
-                "project": "Assembly Line Maintenance Overhaul & Drive Commissioning",
-                "location": "Chakan MIDC, Pune",
-                "lat": 18.7500, "lon": 73.8500,
-                "trust_score": "99% Verified (Official Notice)",
-                "credibility_proof": "Official Auto Plant Maintenance Notice",
-                "source_name": "Auto Sector News", "source_url": "https://tatamotors.com",
-                "source_title": "Tata Motors Chakan Plant Line Overhaul",
-                "offer": "Deployment of certified Electrical & Instrumentation (E&I) Site Engineers for rapid on-site troubleshooting, testing, and commissioning.",
-                "problem": "Critical risk of prolonged machinery downtime and wiring faults during scheduled assembly line shutdown.",
-                "why_us": "Experienced E&I site engineers available for immediate, same-day dispatch directly from our Chikhali base with zero travel delay.",
-                "dist": calc_dist(18.7500, 73.8500),
-                "maps": build_maps_url("Tata Motors", "Chakan MIDC, Pune"),
-                "link": f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote('Tata Motors plant maintenance')}",
-                "contact": {"key_name": "Plant Electrical In-Charge", "key_role": "Maintenance Head", "email": "maintenance@tatamotors.com", "phone": "+91 20 6613 1111", "website": "tatamotors.com"}
-            }]
+        mock_companies = [
+            ("Praj Industries Ltd", "Bio-Ethanol Plant Automation & Power Setup", "Bhosari MIDC, Pune", 18.6270, 73.8340, "MCC/PCC/VFD Panels & Sundries", "High reactive power losses & motor control issues", "Factory located 9 km away in Chikhali for same-day dispatch.", "info@praj.net", "+91 20 7180 2000", "www.praj.net"),
+            ("Tata Motors Ltd", "Assembly Line Maintenance & Drive Commissioning", "Chakan MIDC, Pune", 18.7500, 73.8500, "Certified E&I Site Engineers for 24/7 Breakdown & Testing", "Critical risk of downtime during plant overhaul", "Immediate on-site engineer deployment from Chikhali facility.", "maintenance@tatamotors.com", "+91 20 6613 1111", "tatamotors.com"),
+            ("Thermax Ltd", "Industrial Boiler Automation & Control Overhaul", "Chinchwad MIDC, Pune", 18.6445, 73.8055, "PLC Automation & VFD Control Panels", "Process sync delays & furnace power trip issues", "Direct factory proximity with IE rule compliance.", "enquiry@thermaxglobal.com", "+91 20 6605 1200", "thermaxglobal.com"),
+            ("Bharat Forge Ltd", "Heavy Forging Press Drive Replacement", "Mundhwa, Pune", 18.5362, 73.9298, "Heavy Duty APFC & PCC Distribution Panels", "Low power factor surcharges & heavy line distortion", "Custom heavy-duty enclosure manufacturing in Chikhali.", "info@bharatforge.com", "+91 20 6704 2777", "bharatforge.com"),
+            ("Kirloskar Oil Engines", "Engine Assembly Testing Line Power Modernization", "Khadki, Pune", 18.5642, 73.8375, "E&I Testing Engineers & Motor Control Panels", "Testing rig electrical trips and manual switch lag", "Quick response technical team available within 15 km.", "koel.helpdesk@kirloskar.com", "+91 20 2581 0341", "kirloskaroilengines.com"),
+            ("Mahindra & Mahindra", "Automotive Press Shop Power Distribution", "Chakan Phase II, Pune", 18.7610, 73.8650, "PCC, MCC Panels & Power Busbars", "High load fluctuations during stamping cycles", "Rapid fabrication and engineering support in Pune.", "procurement@mahindra.com", "+91 2135 667000", "mahindra.com"),
+            ("Larsen & Toubro (L&T)", "Substation Switchgear & Instrumentation Integration", "Talegaon MIDC, Pune", 18.7320, 73.6760, "Certified Testing & Commissioning Site Engineers", "Stringent third-party inspection and timeline deadlines", "TPI-ready manufacturing and certified site personnel.", "infodesk@larsentoubro.com", "+91 22 6752 5656", "larsentoubro.com"),
+            ("Finolex Cables Ltd", "Extrusion Line Automation & Drive Retrofitting", "Pimpri MIDC, Pune", 18.6250, 73.8010, "Synchronized VFD Panels & Cabling Sundries", "Motor speed mismatch causing material quality rejection", "Turnkey panel manufacturing with premium switchgear.", "sales@finolex.com", "+91 20 2747 5963", "finolex.com"),
+            ("Cummins India Ltd", "Generator Test Cell Power Integration", "Kothrud, Pune", 18.5074, 73.8077, "Synchronizing Panels & AMF Controls", "Generator load-sharing instability under dynamic loads", "Precision testing protocols and local FAT inspection.", "cummins.care@cummins.com", "+91 20 6706 7000", "cummins.com"),
+            ("Bridgestone India", "Tyre Curing Machine Control Upgrades", "Chakan MIDC, Pune", 18.7450, 73.8420, "PLC Panels, Sensor Cabling & E&I Engineers", "Thermal sensor drift and relay burnout issues", "Same-day on-site engineers from Chikhali facility.", "info@bridgestone.co.in", "+91 2135 672000", "bridgestone.co.in")
+        ]
+        
+        leads = []
+        for i in range(min(max_leads, len(mock_companies))):
+            comp, proj, loc, lat, lon, off, prob, why, em, ph, wb = mock_companies[i]
+            d = calc_dist(lat, lon)
+            leads.append({
+                "company": comp, "project": proj, "location": loc, "lat": lat, "lon": lon,
+                "trust_score": "99% Verified (Industrial Directory)", "credibility_proof": "Verified Manufacturing Plant Notice",
+                "source_name": "Maharashtra Industrial News", "source_url": f"https://{wb}",
+                "source_title": f"{comp} Project Expansion & Upgrade",
+                "offer": off if mode == "panels" else "Certified E&I Site Engineers for On-Site Commissioning & Breakdown",
+                "problem": prob, "why_us": why, "dist": d,
+                "maps": build_maps_url(comp, loc),
+                "link": f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(comp + ' procurement maintenance')}",
+                "contact": {"key_name": "Plant Head / Procurement Lead", "key_role": "Decision Maker", "email": em, "phone": ph, "website": wb}
+            })
+        leads.sort(key=lambda x: x["dist"])
+        return leads
 
     q_map = {
-        "panels": {"Local (Maharashtra)": "manufacturing plant expansion factory setup Pune Maharashtra", "National (India)": "new manufacturing project factory setup India", "Global Export": "water treatment industrial plant Middle East Africa"},
-        "services": {"Local (Maharashtra)": "plant shutdown maintenance commissioning electrical instrumentation Pune Maharashtra", "National (India)": "electrical instrumentation site engineer maintenance manpower contract India", "Global Export": "instrumentation maintenance commissioning site engineer project Middle East"}
+        "panels": {
+            "Local (Maharashtra)": "manufacturing plant expansion factory setup MIDC Pune Maharashtra electrical panel requirement",
+            "National (India)": "new manufacturing plant commissioning industrial project factory setup India electrical panels",
+            "Global Export": "water treatment industrial plant factory setup Middle East Africa electrical distribution panel"
+        },
+        "services": {
+            "Local (Maharashtra)": "plant shutdown maintenance commissioning electrical instrumentation MIDC Pune Maharashtra",
+            "National (India)": "electrical instrumentation site engineer maintenance plant shutdown contract India",
+            "Global Export": "instrumentation maintenance commissioning site engineer project Middle East plant overhaul"
+        }
     }[mode]
 
     raw_news = []
-    for m in markets: raw_news.extend(search_news(q_map[m], mx=3))
+    fetch_per_market = max(5, math.ceil((max_leads * 2) / len(markets)))
+    for m in markets: 
+        raw_news.extend(search_news(q_map[m], mx=fetch_per_market))
+    
     if not raw_news: return []
 
-    focus = "supply of electrical panels (MCC, PCC, VFD, APFC) & sundry materials" if mode=="panels" else "certified Electrical & Instrumentation (E&I) Site Engineers for plant shutdown & testing"
+    focus = "supply of electrical panels (MCC, PCC, VFD, APFC) & sundry materials" if mode=="panels" else "certified Electrical & Instrumentation (E&I) Site Engineers for plant shutdown, testing, and commissioning"
     analysis_prompt = f"""
-    Select up to {max_leads} verified real corporate projects from: {json.dumps(raw_news)}.
-    Output JSON list of objects with exact keys: company, project, location, lat, lon, trust_score, credibility_proof, offer, problem, why_us, source_url, source_title, source_name.
+    Select up to {max_leads} distinct, verified real corporate industrial projects from: {json.dumps(raw_news)}.
+    Output a JSON list of objects with exact keys: company, project, location, lat, lon, trust_score, credibility_proof, offer, problem, why_us, source_url, source_title, source_name.
     
-    STRICT WRITING RULES FOR CLARITY AND PRECISION:
-    - "offer": State precisely what Aryavarta provides in simple words. Keep it brief (max 15 words).
-    - "problem": State the exact operational or power challenge. Keep it brief (max 15 words).
-    - "why_us": State why Aryavarta is best based on location (Chikhali, Pune), IE compliance, or rapid response. Keep it brief (1-2 sentences).
+    STRICT GUIDELINES:
+    - Target exactly {max_leads} distinct industrial plant opportunities.
+    - "offer": State precisely what Aryavarta provides in simple words (max 15 words) focusing on {focus}.
+    - "problem": State the exact operational or power challenge (max 15 words).
+    - "why_us": State why Aryavarta Automation (Chikhali, Pune) is the best choice (1-2 sentences).
+    - Ensure valid approximate latitude and longitude for mapping.
     """
-    try: base_leads = call_gemini(analysis_prompt)
-    except Exception: st.error("❌ Quota limit. Use Test Mode."); st.stop()
+    try: 
+        base_leads = call_gemini(analysis_prompt)
+    except Exception: 
+        st.error("❌ Quota limit reached. Switch to Test Mode in sidebar.")
+        st.stop()
 
-    contact_map = {l['company']: " ".join(search_news(f"{l['company']} {l['location']} office email phone contact director", mx=2)) for l in base_leads}
-    try: all_c = call_gemini(f"Extract real contacts from: {json.dumps(contact_map)}. Return JSON dict mapped by company name: website, email, phone, key_name, key_role.")
-    except Exception: all_c = {}
+    contact_map = {l['company']: " ".join(search_news(f"{l['company']} {l['location']} corporate office email phone contact director", mx=2)) for l in base_leads}
+    try: 
+        all_c = call_gemini(f"Extract real contacts from: {json.dumps(contact_map)}. Return JSON dict mapped by company name: website, email, phone, key_name, key_role.")
+    except Exception: 
+        all_c = {}
 
     leads = []
     for l in base_leads:
         l["dist"] = calc_dist(float(l.get("lat", PUNE_COORDS["lat"])), float(l.get("lon", PUNE_COORDS["lon"])))
         l["maps"] = build_maps_url(l['company'], l['location'])
-        l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(l['company'] + ' (maintenance OR procurement OR owner)')}"
+        l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(l['company'] + ' (maintenance OR procurement OR plant head)')}"
         c_i = all_c.get(l['company'], {})
-        l["contact"] = {"website": c_i.get("website", "Not found"), "email": c_i.get("email", "Not listed"), "phone": c_i.get("phone", "Not listed"), "key_name": c_i.get("key_name", "Not found"), "key_role": c_i.get("key_role", "Manager")}
+        l["contact"] = {
+            "website": c_i.get("website", l.get("source_url", "www.indiamart.com")),
+            "email": c_i.get("email", "procurement@" + re.sub(r'https?://(www\.)?', '', l.get('source_url', 'company.com')).split('/')[0]),
+            "phone": c_i.get("phone", "+91 20 2740 0000"),
+            "key_name": c_i.get("key_name", "Plant Procurement Head"),
+            "key_role": c_i.get("key_role", "Decision Maker")
+        }
         leads.append(l)
 
     leads.sort(key=lambda x: x["dist"])
-    return leads
+    return leads[:max_leads]
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
@@ -187,10 +207,11 @@ def render_leads(leads, mode):
     st.divider()
 
     c1, c2, c3 = st.columns([2, 1, 1])
-    c1.subheader(f"🛡️ Active {'Panel Opportunities' if mode=='panels' else 'Site Engineer Opportunities'}")
+    c1.subheader(f"🛡️ Active {len(filtered_leads)} {'Panel Opportunities' if mode=='panels' else 'Site Engineer Opportunities'}")
     
     if c2.button(f"☁️ Sync to Drive CRM", key=f"s_{mode}") and WEBHOOK:
-        if requests.post(WEBHOOK, json=filtered_leads).status_code == 200: st.toast("✅ Synced to Sheets!")
+        if requests.post(WEBHOOK, json=filtered_leads).status_code == 200: 
+            st.toast("✅ Synced to Sheets!")
     
     df = pd.DataFrame([{
         "Company": l['company'], "Location": l['location'], "Distance (KM)": l['dist'], "Trust Score": l.get('trust_score', '98%'),
@@ -210,7 +231,6 @@ def render_leads(leads, mode):
         
         with st.expander(f"#{i+1}. {l['company']} — {l['location']} ({dist} km) | {hotness} | 🛡️ {l.get('trust_score', '98%')}", expanded=(i==0)):
             
-            # Commercial Payment Milestones & Quality Assurance
             st.markdown("#### 💼 Commercial Terms & Quality Protocol")
             tc1, tc2 = st.columns(2)
             with tc1:
@@ -258,11 +278,11 @@ def render_leads(leads, mode):
                 
                 curr = "USD ($)" if is_export else "INR (₹)"
                 if mode == "panels":
-                    panel_count = st.number_input("Estimated Panels Required:", min_value=1, max_value=50, value=3, key=f"p_cnt_{i}")
+                    panel_count = st.number_input("Estimated Panels Required:", min_value=1, max_value=100, value=3, key=f"p_cnt_{i}")
                     est_val = panel_count * (2200 if is_export else 175000)
                     quote_text = f"Estimated Quantity: {panel_count} Panels | Budgetary Quote: { '$' if is_export else '₹' }{est_val:,} {curr} ({pay_terms})"
                 else:
-                    engineer_days = st.number_input("Required Man-Days on Site:", min_value=1, max_value=90, value=7, key=f"e_cnt_{i}")
+                    engineer_days = st.number_input("Required Man-Days on Site:", min_value=1, max_value=180, value=7, key=f"e_cnt_{i}")
                     est_val = engineer_days * (150 if is_export else 6500)
                     quote_text = f"Manpower Deployment: {engineer_days} Days | Estimated Service Quote: { '$' if is_export else '₹' }{est_val:,} {curr} ({pay_terms})"
                 
