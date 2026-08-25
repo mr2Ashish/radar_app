@@ -1,6 +1,6 @@
 streamlit
 google-genai
-pandas
-requests
 duckduckgo-search
 reportlab
+pandas
+requests
