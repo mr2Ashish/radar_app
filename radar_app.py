@@ -2,7 +2,7 @@ import streamlit as st
 from google import genai
 from google.genai import types
 import json, urllib.parse, math, time, pandas as pd, requests, re
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
