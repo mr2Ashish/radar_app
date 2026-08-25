@@ -1,7 +1,7 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-import json, urllib.parse, math, time, pandas as pd, requests, re
+import json, urllib.parse, math, time, pandas as pd, requests, re, datetime
 from duckduckgo_search import DDGS
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
@@ -16,13 +16,13 @@ WEBHOOK = st.secrets.get("WEBHOOK_URL", "") if hasattr(st, "secrets") else ""
 with st.sidebar:
     st.header("⚡ Radar Command Center")
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
-    if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook (Optional):", type="password").strip()
+    if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook URL:", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
-    max_leads = st.slider("Target Leads:", min_value=2, max_value=20, value=5, help="Select number of verified target leads to generate (up to 20).")
+    max_leads = st.slider("Target Leads:", min_value=2, max_value=20, value=5, help="Select number of verified target leads to generate.")
     
     st.divider()
-    max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 20000, 20000, help="Filter out leads further than this distance.")
-    test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=True, help="Test UI, BANT scoring, FAT/SAT & WhatsApp without API quota.")
+    max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 20000, 20000)
+    test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=True, help="Test UI, detailed breakdowns, CRM Sync & PDF without API quota.")
 
 if not API_KEY and not test_mode:
     st.warning("⚠️ Enter Gemini API Key in sidebar.")
@@ -59,27 +59,41 @@ def search_news(q, mx=10):
 def gen_pdf(l, mode, quote_text, bantscore, fatsat, pay_terms):
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
-    c.setFont("Helvetica-Bold", 18)
+    c.setFont("Helvetica-Bold", 16)
     c.drawString(40, 805, f"ARYAVARTA AUTOMATION - {mode.upper()} PROPOSAL")
-    c.setFont("Helvetica", 10)
-    c.drawString(40, 785, "Gat No. 1610, Dehu Alandi Rd, Chikhali, Pune-411062 | GST: 27ABOFA4930E1ZH | Ph: 08045802403")
+    c.setFont("Helvetica", 9)
+    c.drawString(40, 788, "Gat No. 1610, Dehu Alandi Rd, Chikhali, Pune-411062 | GST: 27ABOFA4930E1ZH | Ph: 08045802403")
     c.setStrokeColorRGB(0.7, 0.7, 0.7)
-    c.line(40, 775, 555, 775)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(40, 750, f"Client: {l.get('company')} | Location: {l.get('location')} ({l.get('dist')} km)")
-    c.setFont("Helvetica", 10)
-    c.drawString(40, 730, f"Project Scope: {l.get('project')} | Deal Success Score: {bantscore}%")
-    c.drawString(40, 710, f"Verification Proof: {l.get('credibility_proof')}")
+    c.line(40, 778, 555, 778)
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(40, 680, "Commercial Terms, Estimate & Quality Assurance:")
-    c.setFont("Helvetica", 10)
-    text = c.beginText(40, 660)
-    text.textLines(f"- Scope / Deliverables: {l.get('offer')}\n- Problem Solved: {l.get('problem')}\n- {quote_text}\n- Commercial Terms: {pay_terms}\n- Quality Protocol: {fatsat}\n- Service SLA: Guaranteed dispatch & support directly from Chikhali, Pune.")
-    c.drawText(text)
+    c.drawString(40, 755, f"Client: {l.get('company')} | Location: {l.get('location')} ({l.get('dist')} km)")
+    c.setFont("Helvetica", 9)
+    c.drawString(40, 738, f"Project Scope: {l.get('project')}")
+    c.drawString(40, 722, f"Verification: {l.get('trust_score')} - {l.get('credibility_proof')} | Deal Score: {bantscore}%")
     
-    c.drawString(40, 120, "Authorized Engineering & Commercial Sign-off:")
-    c.drawString(40, 100, "Aryavarta Automation Sales & Engineering Team")
-    c.drawString(40, 85, f"Source Reference: {l.get('source_url')} | www.aryavartaautomation.com")
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(40, 695, "1. Client Operational Challenges:")
+    c.setFont("Helvetica", 9)
+    t1 = c.beginText(40, 680)
+    t1.textLines(l.get('problem', ''))
+    c.drawText(t1)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(40, 610, "2. Aryavarta Engineered Solution & Deliverables:")
+    c.setFont("Helvetica", 9)
+    t2 = c.beginText(40, 595)
+    t2.textLines(f"- Scope: {l.get('offer')}\n- Commercial Estimate: {quote_text}\n- Commercial Terms: {pay_terms}\n- QA Protocol: {fatsat}")
+    c.drawText(t2)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(40, 505, "3. Value-Add & Strategic Advantage:")
+    c.setFont("Helvetica", 9)
+    t3 = c.beginText(40, 490)
+    t3.textLines(f"- {l.get('why_us')}\n- 100% Indian Electricity (IE) Rule compliance & local Chikhali engineering response.")
+    c.drawText(t3)
+    
+    c.drawString(40, 95, "Authorized Engineering & Commercial Sign-off: Aryavarta Automation")
+    c.drawString(40, 80, f"Source Ref: {l.get('source_url')} | support@aryavartaautomation.com | www.aryavartaautomation.com")
     c.save()
     return buf.getvalue()
 
@@ -99,16 +113,21 @@ def scan_engine(mode):
     if test_mode:
         time.sleep(0.3)
         mock_companies = [
-            ("Praj Industries Ltd", "Bio-Ethanol Plant Automation & Power Setup", "Bhosari MIDC, Pune", 18.6270, 73.8340, "MCC/PCC/VFD Panels & Sundries", "High reactive power losses & motor control issues", "Factory located 9 km away in Chikhali for same-day dispatch.", "info@praj.net", "+91 20 7180 2000", "www.praj.net"),
-            ("Tata Motors Ltd", "Assembly Line Maintenance & Drive Commissioning", "Chakan MIDC, Pune", 18.7500, 73.8500, "Certified E&I Site Engineers for 24/7 Breakdown & Testing", "Critical risk of downtime during plant overhaul", "Immediate on-site engineer deployment from Chikhali facility.", "maintenance@tatamotors.com", "+91 20 6613 1111", "tatamotors.com"),
-            ("Thermax Ltd", "Industrial Boiler Automation & Control Overhaul", "Chinchwad MIDC, Pune", 18.6445, 73.8055, "PLC Automation & VFD Control Panels", "Process sync delays & furnace power trip issues", "Direct factory proximity with IE rule compliance.", "enquiry@thermaxglobal.com", "+91 20 6605 1200", "thermaxglobal.com"),
-            ("Bharat Forge Ltd", "Heavy Forging Press Drive Replacement", "Mundhwa, Pune", 18.5362, 73.9298, "Heavy Duty APFC & PCC Distribution Panels", "Low power factor surcharges & heavy line distortion", "Custom heavy-duty enclosure manufacturing in Chikhali.", "info@bharatforge.com", "+91 20 6704 2777", "bharatforge.com"),
-            ("Kirloskar Oil Engines", "Engine Assembly Testing Line Power Modernization", "Khadki, Pune", 18.5642, 73.8375, "E&I Testing Engineers & Motor Control Panels", "Testing rig electrical trips and manual switch lag", "Quick response technical team available within 15 km.", "koel.helpdesk@kirloskar.com", "+91 20 2581 0341", "kirloskaroilengines.com"),
-            ("Mahindra & Mahindra", "Automotive Press Shop Power Distribution", "Chakan Phase II, Pune", 18.7610, 73.8650, "PCC, MCC Panels & Power Busbars", "High load fluctuations during stamping cycles", "Rapid fabrication and engineering support in Pune.", "procurement@mahindra.com", "+91 2135 667000", "mahindra.com"),
-            ("Larsen & Toubro (L&T)", "Substation Switchgear & Instrumentation Integration", "Talegaon MIDC, Pune", 18.7320, 73.6760, "Certified Testing & Commissioning Site Engineers", "Stringent third-party inspection and timeline deadlines", "TPI-ready manufacturing and certified site personnel.", "infodesk@larsentoubro.com", "+91 22 6752 5656", "larsentoubro.com"),
-            ("Finolex Cables Ltd", "Extrusion Line Automation & Drive Retrofitting", "Pimpri MIDC, Pune", 18.6250, 73.8010, "Synchronized VFD Panels & Cabling Sundries", "Motor speed mismatch causing material quality rejection", "Turnkey panel manufacturing with premium switchgear.", "sales@finolex.com", "+91 20 2747 5963", "finolex.com"),
-            ("Cummins India Ltd", "Generator Test Cell Power Integration", "Kothrud, Pune", 18.5074, 73.8077, "Synchronizing Panels & AMF Controls", "Generator load-sharing instability under dynamic loads", "Precision testing protocols and local FAT inspection.", "cummins.care@cummins.com", "+91 20 6706 7000", "cummins.com"),
-            ("Bridgestone India", "Tyre Curing Machine Control Upgrades", "Chakan MIDC, Pune", 18.7450, 73.8420, "PLC Panels, Sensor Cabling & E&I Engineers", "Thermal sensor drift and relay burnout issues", "Same-day on-site engineers from Chikhali facility.", "info@bridgestone.co.in", "+91 2135 672000", "bridgestone.co.in")
+            ("Praj Industries Ltd", "Bio-Ethanol Plant Automation & Power Distribution Setup", "Bhosari MIDC, Pune", 18.6270, 73.8340, 
+             "Custom MCC, PCC, and VFD control panels complete with sundry cabling accessories (cable trays, glands, lugs, ferrules, terminal blocks) tailored for hazardous continuous processing environments.", 
+             "Experiencing severe power factor penalties, unoptimized motor load synchronization, and harmonic distortion across distillation drives causing recurring thermal trips and process downtime.", 
+             "Aryavarta provides fully engineered, IE-compliant panels manufactured only 9 km away in Chikhali, offering same-day factory inspections, FAT sign-offs, and immediate replacement part delivery.", 
+             "info@praj.net", "+91 20 7180 2000", "www.praj.net"),
+            ("Tata Motors Ltd", "Assembly Line Maintenance Overhaul & Drive Commissioning", "Chakan MIDC, Pune", 18.7500, 73.8500, 
+             "Certified senior Electrical & Instrumentation (E&I) Site Engineers equipped for high-speed PLC drive synchronization, busbar torque testing, and 24/7 breakdown troubleshooting.", 
+             "Tight 72-hour scheduled plant shutdown window where any uncalibrated sensor drift, drive communication mismatch, or cabling fault causes massive assembly line production delays.", 
+             "Immediate dispatch of certified testing engineers from our Chikhali facility within 25 minutes, backed by in-house test benches and complete instrumentation diagnostic tooling.", 
+             "maintenance@tatamotors.com", "+91 20 6613 1111", "tatamotors.com"),
+            ("Thermax Ltd", "Industrial Boiler Automation & Control Overhaul", "Chinchwad MIDC, Pune", 18.6445, 73.8055, 
+             "Turnkey PLC automation control panels, customized flame-proof junction boxes, and temperature transmitter integration.", 
+             "Frequent boiler tripping due to aging manual switchgear and lack of automated PID burner loop controls, degrading energy efficiency.", 
+             "Custom CAD single-line diagram design, localized panel fabrication in Pune, and rigorous Factory Acceptance Testing (FAT) prior to site delivery.", 
+             "enquiry@thermaxglobal.com", "+91 20 6605 1200", "thermaxglobal.com")
         ]
         
         leads = []
@@ -119,9 +138,8 @@ def scan_engine(mode):
                 "company": comp, "project": proj, "location": loc, "lat": lat, "lon": lon,
                 "trust_score": "99% Verified (Industrial Directory)", "credibility_proof": "Verified Manufacturing Plant Notice",
                 "source_name": "Maharashtra Industrial News", "source_url": f"https://{wb}",
-                "source_title": f"{comp} Project Expansion & Upgrade",
-                "offer": off if mode == "panels" else "Certified E&I Site Engineers for On-Site Commissioning & Breakdown",
-                "problem": prob, "why_us": why, "dist": d,
+                "source_title": f"{comp} Expansion Project",
+                "offer": off, "problem": prob, "why_us": why, "dist": d,
                 "maps": build_maps_url(comp, loc),
                 "link": f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(comp + ' procurement maintenance')}",
                 "contact": {"key_name": "Plant Head / Procurement Lead", "key_role": "Decision Maker", "email": em, "phone": ph, "website": wb}
@@ -154,12 +172,12 @@ def scan_engine(mode):
     Select up to {max_leads} distinct, verified real corporate industrial projects from: {json.dumps(raw_news)}.
     Output a JSON list of objects with exact keys: company, project, location, lat, lon, trust_score, credibility_proof, offer, problem, why_us, source_url, source_title, source_name.
     
-    STRICT GUIDELINES:
-    - Target exactly {max_leads} distinct industrial plant opportunities.
-    - "offer": State precisely what Aryavarta provides in simple words (max 15 words) focusing on {focus}.
-    - "problem": State the exact operational or power challenge (max 15 words).
-    - "why_us": State why Aryavarta Automation (Chikhali, Pune) is the best choice (1-2 sentences).
-    - Ensure valid approximate latitude and longitude for mapping.
+    DETAILED WRITING GUIDELINES:
+    - "project": State the explicit plant project name and physical scope.
+    - "problem": Describe in detail the exact operational, electrical, or downtime bottlenecks the client faces (power quality issues, shutdown risks, outdated switchgear, control lags).
+    - "offer": Detail the complete engineered solution from Aryavarta Automation (specific panel models like MCC/PCC/VFD, sundries like trays/glands, or certified E&I site engineers).
+    - "why_us": Highlight Aryavarta Automation's core value adds (manufacturing facility in Chikhali, Pune, 100% IE Rule compliance, FAT/SAT inspection readiness, rapid response).
+    - lat, lon: Approximate geographical coordinates.
     """
     try: 
         base_leads = call_gemini(analysis_prompt)
@@ -206,20 +224,63 @@ def render_leads(leads, mode):
     kpi3.metric("📍 Operational Base", "Chikhali, Pune")
     st.divider()
 
+    # Dynamic CRM Payload Builder
+    crm_sync_data = []
+    for i, l in enumerate(filtered_leads):
+        dist = l['dist']
+        is_export = dist > 1500 or "Middle East" in l['location'] or "Africa" in l['location']
+        curr = "USD ($)" if is_export else "INR (₹)"
+        
+        p_cnt = st.session_state.get(f"p_cnt_{i}", 3)
+        e_cnt = st.session_state.get(f"e_cnt_{i}", 7)
+        qty_str = f"{p_cnt} Panels" if mode == "panels" else f"{e_cnt} Man-Days"
+        est_val = (p_cnt * (2200 if is_export else 175000)) if mode == "panels" else (e_cnt * (150 if is_export else 6500))
+        est_str = f"{ '$' if is_export else '₹' }{est_val:,} {curr}"
+        
+        pay_term = st.session_state.get(f"pt_{mode}_{i}", "30% Advance, 60% Dispatch, 10% Commissioning")
+        fatsat_val = st.session_state.get(f"fs_{mode}_{i}", "Factory Acceptance Testing (FAT) Included")
+        notes_val = st.session_state.get(f"notes_{mode}_{i}", "")
+        
+        crm_sync_data.append({
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mode": "Panel Manufacturing" if mode == "panels" else "E&I Site Engineering",
+            "company": l['company'],
+            "location": l['location'],
+            "distance_km": dist,
+            "project_scope": l['project'],
+            "required_panels_or_mandays": qty_str,
+            "client_problem_detailed": l['problem'],
+            "aryavarta_solution_detailed": l['offer'],
+            "value_add": l['why_us'],
+            "commercial_estimate": est_str,
+            "payment_terms": pay_term,
+            "testing_protocol": fatsat_val,
+            "contact_person": l['contact'].get('key_name'),
+            "role": l['contact'].get('key_role'),
+            "email": l['contact'].get('email'),
+            "phone": l['contact'].get('phone'),
+            "source_url": l['source_url'],
+            "sales_notes": notes_val
+        })
+
     c1, c2, c3 = st.columns([2, 1, 1])
     c1.subheader(f"🛡️ Active {len(filtered_leads)} {'Panel Opportunities' if mode=='panels' else 'Site Engineer Opportunities'}")
     
-    if c2.button(f"☁️ Sync to Drive CRM", key=f"s_{mode}") and WEBHOOK:
-        if requests.post(WEBHOOK, json=filtered_leads).status_code == 200: 
-            st.toast("✅ Synced to Sheets!")
+    if c2.button(f"☁️ Sync to Drive CRM", key=f"s_{mode}"):
+        if WEBHOOK:
+            try:
+                res = requests.post(WEBHOOK, json=crm_sync_data, timeout=10)
+                if res.status_code == 200:
+                    st.toast("✅ Synced all detailed fields to Google Sheet CRM!")
+                else:
+                    st.error(f"❌ Webhook responded with status: {res.status_code}")
+            except Exception as e:
+                st.error(f"❌ Webhook Sync Error: {e}")
+        else:
+            st.warning("⚠️ Please provide your Google Sheets Webhook URL in the sidebar.")
     
-    df = pd.DataFrame([{
-        "Company": l['company'], "Location": l['location'], "Distance (KM)": l['dist'], "Trust Score": l.get('trust_score', '98%'),
-        "Project Scope": l['project'], "Offer": l['offer'], "Problem Solved": l['problem'], "Why Aryavarta": l['why_us'],
-        "Contact Person": l['contact'].get('key_name'), "Role": l['contact'].get('key_role'),
-        "Email": l['contact'].get('email'), "Phone": l['contact'].get('phone'), "Source URL": l['source_url']
-    } for l in filtered_leads])
-    c3.download_button("📥 Export CSV", df.to_csv(index=False).encode('utf-8'), f"Aryavarta_{mode}_Leads.csv", "text/csv", key=f"d_{mode}")
+    df = pd.DataFrame(crm_sync_data)
+    c3.download_button("📥 Export Full CSV", df.to_csv(index=False).encode('utf-8'), f"Aryavarta_{mode}_Detailed_CRM.csv", "text/csv", key=f"d_{mode}")
 
     map_df = pd.DataFrame([{"lat": float(l.get("lat", PUNE_COORDS["lat"])), "lon": float(l.get("lon", PUNE_COORDS["lon"]))} for l in filtered_leads] + [{"lat": PUNE_COORDS["lat"], "lon": PUNE_COORDS["lon"]}])
     st.map(map_df, zoom=6)
@@ -271,9 +332,9 @@ def render_leads(leads, mode):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"### 🏢 {l['project']}")
-                st.markdown(f"**📦 What We Offer:** {l['offer']}")
-                st.markdown(f"**🔧 Problem Solved:** {l['problem']}")
-                st.markdown(f"**🏆 Why Aryavarta Automation:** {l['why_us']}")
+                st.markdown(f"**📦 What We Offer:**\n{l['offer']}")
+                st.markdown(f"**🔧 Problem Solved:**\n{l['problem']}")
+                st.markdown(f"**🏆 Why Aryavarta Automation (Value Add):**\n{l['why_us']}")
                 st.markdown(f"[📍 Google Maps Route]({l['maps']}) | [💼 Search LinkedIn]({l['link']})")
                 
                 curr = "USD ($)" if is_export else "INR (₹)"
@@ -307,11 +368,11 @@ def render_leads(leads, mode):
                 pitch_angle = st.selectbox("🎯 Select Pitch Angle:", ["Standard Introduction & Profile", "Urgent Breakdown / Shutdown Support", "Turnkey Panel & Sundry Supply"], key=f"angle_{mode}_{i}")
                 
                 if pitch_angle == "Standard Introduction & Profile":
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nRegarding your {l['project']} in {l['location']}, Aryavarta Automation (Chikhali, Pune) specializes in {l['offer']} with 100% IE Rule compliance, {fatsat}, and flexible terms ({pay_terms}). ({quote_text}).\n\nPlease check our profile: www.aryavartaautomation.com"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nRegarding your {l['project']} in {l['location']}:\n\nAryavarta Automation (Chikhali, Pune) specializes in solving: {l['problem']}\n\nOur Solution: {l['offer']}\n\nValue Add: {l['why_us']} ({quote_text}).\n\nPlease check our profile: www.aryavartaautomation.com"
                 elif pitch_angle == "Urgent Breakdown / Shutdown Support":
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nFor your upcoming shutdown/maintenance at {l['location']}, Aryavarta Automation provides certified E&I Site Engineers for rapid troubleshooting with zero travel delay from Pune.\n\nLet us know your dispatch requirements!"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nFor your shutdown at {l['location']}, Aryavarta Automation deploys certified E&I engineers to eliminate: {l['problem']}.\n\nOur engineers provide: {l['offer']}.\n\nLet us know your dispatch timeline!"
                 else:
-                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nAryavarta Automation offers complete turnkey panel manufacturing and sundry supplies (cable trays, glands, lugs) with full factory warranty and transparent commercial milestones ({pay_terms}) for projects like your {l['project']}. ({quote_text}).\n\nLet's connect!"
+                    pitch_msg = f"Hello {l['contact'].get('key_name', 'Team')},\n\nAryavarta Automation offers complete turnkey panel manufacturing ({quote_text}) to solve: {l['problem']}.\n\nWe provide 100% IE Rule compliance with {fatsat}.\n\nLet's connect!"
 
                 clean_phone = re.sub(r'[^0-9]', '', str(l['contact'].get('phone', '')))
                 wa_url = f"https://api.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(pitch_msg)}" if clean_phone else f"https://api.whatsapp.com/send?text={urllib.parse.quote(pitch_msg)}"
