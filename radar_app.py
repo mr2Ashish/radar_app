@@ -52,7 +52,7 @@ def search_news(q, mx=3):
 
 def call_gemini(prompt):
     # Using the stable fast model to prevent timeouts
-    model_name = 'gemini-2.5-flash' 
+    model_name = 'gemini-3.6-flash' 
     for i in range(2):
         try:
             r = client.models.generate_content(
