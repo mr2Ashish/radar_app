@@ -149,13 +149,11 @@ def render_leads(leads, mode):
         fatsat_val = st.session_state.get(f"fs_{mode}_{i}", "Factory Acceptance Testing (FAT) Included")
         notes_val = st.session_state.get(f"notes_{mode}_{i}", "")
         
-        # --- FIXED: ADDING PANEL/MAN-DAY QUANTITIES TO CRM PAYLOAD ---
         sheet_profile = f"🏭 OVERVIEW:\n{l.get('company_overview', '')}\n\n🎯 VISION:\n{l.get('strategic_vision', '')}\n\n🤝 CRITERIA:\n{l.get('partner_criteria', '')}"
         sheet_tech = f"⚠️ PROBLEM:\n{l.get('client_problem', '')}\n\n✅ SOLUTION:\n{l.get('primary_solution', '')}\n\n🛣️ ROADMAP:\n{l.get('resolution_roadmap', '')}"
         sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
         sheet_score = f"📋 REQUIREMENT: {qty_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {fatsat_val}"
         
-        # --- FIXED: FULL OUTREACH SCRIPTS FOR CRM ---
         corp_email = f"Subject: Technical Vendor Empanelment - {l.get('company')}\n\nDear {l.get('contact',{}).get('key_name', 'Procurement Team')},\n\nWe manufacture IE-compliant Control Panels and deploy E&I Site Engineers from Pune. We understand the priority of addressing: {l.get('client_problem', '')}\n\nAryavarta Scope: {l.get('primary_solution', '')}\nTarget Quantity: {qty_str}\n\nWe welcome the opportunity to submit our profile for your Vendor List.\n\nsupport@aryavartaautomation.com"
         wa_msg = f"Hello {l.get('contact',{}).get('key_name', 'Sir/Madam')},\nGreetings from Aryavarta Automation (Pune). We solve {str(l.get('client_problem', ''))[:50]}... with custom panels. Can we share our catalog? www.aryavartaautomation.com"
         call_script = f"1. Intro: Good morning {l.get('contact',{}).get('key_name')}, from Aryavarta Automation.\n2. Hook: We help eliminate {str(l.get('client_problem', ''))[:50]}...\n3. CTA: Can I send our technical catalog?"
@@ -225,7 +223,6 @@ def render_leads(leads, mode):
             with t_outreach:
                 st.info(f"**👤 {l.get('contact',{}).get('key_name')}** | ✉️ `{l.get('contact',{}).get('email')}` | 📞 `{l.get('contact',{}).get('phone')}`")
                 
-                # --- FIXED: RESTORED FULL MULTI-TAB OUTREACH UI ---
                 o_em, o_wa, o_call, o_li = st.tabs(["📧 Email", "💬 WhatsApp", "📞 Call Script", "💼 LinkedIn"])
                 
                 with o_em:
@@ -248,7 +245,7 @@ def render_leads(leads, mode):
                     st.link_button("💼 Open LinkedIn Profile", l.get('link'))
 
                 st.divider()
-                st.session_state[f"notes_{mode}_{i}"] = st.text_area("📝 Internal Sales Notes:", value=st.session_state.get(f"notes_{mode}_{i}", ""), key=f"notes_{mode}_{i}")
+                st.text_area("📝 Internal Sales Notes:", value=st.session_state.get(f"notes_{mode}_{i}", ""), key=f"notes_{mode}_{i}")
 
 # --- 4. MAIN TABS ---
 st.title("⚡ Aryavarta Global AI Radar Enterprise 360")
