@@ -93,7 +93,7 @@ def gen_pdf(l, mode, quote_text, fatsat, pay_terms):
 def call_gemini(prompt):
     for i in range(2):
         try:
-            r = client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+            r = client.models.generate_content(model='gemini-3.6-flash', contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
             return json.loads(r.text)
         except Exception as e:
             if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and i == 0:
