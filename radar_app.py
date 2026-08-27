@@ -47,11 +47,10 @@ def search_news(q, mx=3):
             for r in d.text(q, max_results=mx): 
                 res.append(f"Title: {r.get('title')} | Body: {r.get('body')}")
     except Exception: 
-        pass # Silently fail and let AI use internal knowledge
+        pass 
     return res
 
 def call_gemini(prompt):
-    # Using the stable fast model to prevent timeouts
     model_name = 'gemini-3.6-flash' 
     for i in range(2):
         try:
@@ -77,9 +76,7 @@ def scan_engine(mode):
         "networking": {"Local (Maharashtra)": '(site:linkedin.com/company) "Procurement" "EPC" Pune', "National (India)": '(site:linkedin.com/company) "Procurement Head" "Manufacturing" India'}
     }
     
-    # Fallback to local if exact key missing
     query_dict = q_map.get(mode, q_map["panels"])
-    
     raw_data = []
     for m in markets: 
         search_term = query_dict.get(m, query_dict["Local (Maharashtra)"])
@@ -108,7 +105,7 @@ def scan_engine(mode):
     try: 
         base_leads = call_gemini(analysis_prompt)
     except Exception as e: 
-        st.error(f"⚠️ Search Failed. The AI model timed out or blocked the request. Try lowering the target count to 5. Error details: {e}")
+        st.error(f"⚠️ Search Failed. Ensure your API Key is valid. Error: {e}")
         return []
 
     leads = []
@@ -127,7 +124,7 @@ def scan_engine(mode):
 def render_leads(leads, mode):
     filtered_leads = [l for l in leads if l['dist'] <= max_dist_filter]
     if not filtered_leads:
-        st.warning(f"⚠️ Targets were found, but none were within your {max_dist_filter} km filter limit. Try increasing the slider.")
+        st.warning(f"⚠️ Targets were found, but none were within your {max_dist_filter} km filter limit.")
         return
     
     kpi1, kpi2, kpi3 = st.columns(3)
@@ -152,14 +149,19 @@ def render_leads(leads, mode):
         fatsat_val = st.session_state.get(f"fs_{mode}_{i}", "Factory Acceptance Testing (FAT) Included")
         notes_val = st.session_state.get(f"notes_{mode}_{i}", "")
         
-        # --- FIX: COMBINING RICH TEXT FOR GOOGLE SHEETS ---
+        # --- FIXED: ADDING PANEL/MAN-DAY QUANTITIES TO CRM PAYLOAD ---
         sheet_profile = f"🏭 OVERVIEW:\n{l.get('company_overview', '')}\n\n🎯 VISION:\n{l.get('strategic_vision', '')}\n\n🤝 CRITERIA:\n{l.get('partner_criteria', '')}"
         sheet_tech = f"⚠️ PROBLEM:\n{l.get('client_problem', '')}\n\n✅ SOLUTION:\n{l.get('primary_solution', '')}\n\n🛣️ ROADMAP:\n{l.get('resolution_roadmap', '')}"
         sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
-        sheet_score = f"{est_str}\n\nTerms: {pay_term}\nQA: {fatsat_val}"
+        sheet_score = f"📋 REQUIREMENT: {qty_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {fatsat_val}"
         
-        wa_msg = f"Hello {l.get('contact',{}).get('key_name', 'Sir/Madam')},\nGreetings from Aryavarta Automation. We solve {str(l.get('client_problem', ''))[:50]}... with custom IE-compliant panels. Can we share our catalog? www.aryavartaautomation.com"
-        sheet_outreach = f"👤 {l.get('contact',{}).get('key_name', '')}\n📧 {l.get('contact',{}).get('email', '')}\n📞 {l.get('contact',{}).get('phone', '')}\n\n💬 WHATSAPP SCRIPT:\n{wa_msg}"
+        # --- FIXED: FULL OUTREACH SCRIPTS FOR CRM ---
+        corp_email = f"Subject: Technical Vendor Empanelment - {l.get('company')}\n\nDear {l.get('contact',{}).get('key_name', 'Procurement Team')},\n\nWe manufacture IE-compliant Control Panels and deploy E&I Site Engineers from Pune. We understand the priority of addressing: {l.get('client_problem', '')}\n\nAryavarta Scope: {l.get('primary_solution', '')}\nTarget Quantity: {qty_str}\n\nWe welcome the opportunity to submit our profile for your Vendor List.\n\nsupport@aryavartaautomation.com"
+        wa_msg = f"Hello {l.get('contact',{}).get('key_name', 'Sir/Madam')},\nGreetings from Aryavarta Automation (Pune). We solve {str(l.get('client_problem', ''))[:50]}... with custom panels. Can we share our catalog? www.aryavartaautomation.com"
+        call_script = f"1. Intro: Good morning {l.get('contact',{}).get('key_name')}, from Aryavarta Automation.\n2. Hook: We help eliminate {str(l.get('client_problem', ''))[:50]}...\n3. CTA: Can I send our technical catalog?"
+        inmail_text = f"Hi {l.get('contact',{}).get('key_name')}, I lead partnerships at Aryavarta Automation. Given your focus at {l.get('company')}, I'd welcome the opportunity to connect."
+
+        sheet_outreach = f"👤 {l.get('contact',{}).get('key_name', '')} | 📧 {l.get('contact',{}).get('email', '')} | 📞 {l.get('contact',{}).get('phone', '')}\n\n📧 EMAIL:\n{corp_email}\n\n💬 WHATSAPP:\n{wa_msg}\n\n📞 CALL SCRIPT:\n{call_script}"
 
         crm_sync_data.append({
             "mode": mode.capitalize(), "company": l.get('company', ''), "location": l.get('location', ''),
@@ -222,8 +224,31 @@ def render_leads(leads, mode):
 
             with t_outreach:
                 st.info(f"**👤 {l.get('contact',{}).get('key_name')}** | ✉️ `{l.get('contact',{}).get('email')}` | 📞 `{l.get('contact',{}).get('phone')}`")
-                st.text_area("Ready WhatsApp/Email Template:", crm_sync_data[i]['ready_outreach'], height=200, key=f"wa_txt_{mode}_{i}")
-                st.text_area("📝 Internal Sales Notes:", value=st.session_state.get(f"notes_{mode}_{i}", ""), key=f"notes_{mode}_{i}")
+                
+                # --- FIXED: RESTORED FULL MULTI-TAB OUTREACH UI ---
+                o_em, o_wa, o_call, o_li = st.tabs(["📧 Email", "💬 WhatsApp", "📞 Call Script", "💼 LinkedIn"])
+                
+                with o_em:
+                    st.text_area("Ready Email:", corp_email, height=180, key=f"em_txt_{mode}_{i}")
+                    em_to = l.get('contact',{}).get('email','')
+                    gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={em_to if '@' in em_to else ''}&su={urllib.parse.quote('Technical Vendor Empanelment - Aryavarta Automation')}&body={urllib.parse.quote(corp_email)}"
+                    st.link_button("🚀 1-Click Send via Gmail", gmail_url, type="primary")
+                    
+                with o_wa:
+                    st.text_area("Ready WhatsApp:", wa_msg, height=120, key=f"wa_txt_{mode}_{i}")
+                    clean_phone = re.sub(r'[^0-9]', '', str(l.get('contact',{}).get('phone','')))
+                    wa_url = f"https://api.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(wa_msg)}" if clean_phone else f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_msg)}"
+                    st.link_button("💬 1-Click Send via WhatsApp", wa_url, type="secondary")
+                    
+                with o_call:
+                    st.markdown(call_script.replace('\n', '\n\n'))
+                    
+                with o_li:
+                    st.text_area("LinkedIn Connect:", inmail_text, height=100, key=f"li_txt_{mode}_{i}")
+                    st.link_button("💼 Open LinkedIn Profile", l.get('link'))
+
+                st.divider()
+                st.session_state[f"notes_{mode}_{i}"] = st.text_area("📝 Internal Sales Notes:", value=st.session_state.get(f"notes_{mode}_{i}", ""), key=f"notes_{mode}_{i}")
 
 # --- 4. MAIN TABS ---
 st.title("⚡ Aryavarta Global AI Radar Enterprise 360")
