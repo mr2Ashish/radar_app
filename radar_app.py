@@ -13,7 +13,7 @@ with st.sidebar:
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
     if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook URL:", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
-    max_leads = st.slider("Target Intelligence Profiles:", min_value=2, max_value=20, value=10) # Lowered default to 10 for speed
+    max_leads = st.slider("Target Intelligence Profiles:", min_value=2, max_value=20, value=10)
     st.divider()
     max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 3000, 3000)
     test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=False)
@@ -36,15 +36,14 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # Using the stable, high-capacity 1.5-flash model to prevent quotas and hangs
-    model_name = 'gemini-1.5-flash' 
+    # Fixed: Pointing explicitly to the active Free Tier quota model
+    model_name = 'gemini-3.6-flash' 
     for i in range(3):
         try:
             r = client.models.generate_content(
                 model=model_name, 
                 contents=prompt
             )
-            # FORCE CLEAN JSON: Strips out hidden markdown that causes silent crashes
             clean_text = r.text.replace("```json", "").replace("```", "").strip()
             return json.loads(clean_text)
         except Exception as e:
