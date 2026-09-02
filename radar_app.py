@@ -1,7 +1,7 @@
 import streamlit as st
 from google import genai
+from google.genai import types
 import json, urllib.parse, math, time, pandas as pd, requests, re, datetime
-from duckduckgo_search import DDGS
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout="wide")
@@ -36,92 +36,56 @@ def calc_dist(lat, lon):
 def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
-def search_news(q, mx=4):
-    res = []
-    try:
-        with DDGS() as d:
-            for r in d.text(q, max_results=mx): 
-                res.append(f"Title: {r.get('title')} | URL: {r.get('href')} | Body: {r.get('body')}")
-    except Exception: 
-        pass 
-    return res
-
 def call_gemini(prompt):
-    # FIXED: Multi-model fallback cascade added to bypass 503 traffic jams
-    fallback_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']
-    
-    for model_name in fallback_models:
-        wait_time = 2
-        for attempt in range(3):
-            try:
-                r = client.models.generate_content(
-                    model=model_name, 
-                    contents=prompt
+    model_name = 'gemini-3.6-flash' 
+    for i in range(3):
+        try:
+            r = client.models.generate_content(
+                model=model_name, 
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    tools=[{"google_search": {}}] # Natively grounds the AI in live Google Search
                 )
-                clean_text = r.text.replace("```json", "").replace("```", "").strip()
-                return json.loads(clean_text)
-            except Exception as e:
-                error_msg = str(e)
-                # If Google is overloaded, trigger exponential backoff
-                if "503" in error_msg or "429" in error_msg:
-                    if attempt == 2:
-                        break  # Move to the next backup model
-                    time.sleep(wait_time)
-                    wait_time *= 2 
-                else:
-                    break  # Jump immediately to next model on other errors
-                    
-    raise Exception("Google's servers are completely overwhelmed across all model tiers. Please wait 2 minutes and click scan again.")
+            )
+            clean_text = r.text.replace("```json", "").replace("```", "").strip()
+            return json.loads(clean_text)
+        except Exception as e:
+            if i == 2:
+                raise e
+            time.sleep(3)
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
     if test_mode: return []
 
     target_region = " and ".join(markets)
-    q_map = {
-        "panels": {
-            "Local (Maharashtra)": '(Food OR Beverage OR Dairy OR FMCG) "manufacturing plant" OR "expansion" ("MCC panel" OR "PLC panel" OR "VFD") Pune OR Maharashtra', 
-            "National (India)": '(Food OR FMCG OR Brewery) "factory setup" ("Low voltage panel" OR "automation") India'
-        },
-        "services": {
-            "Local (Maharashtra)": '(Food OR Dairy) "plant shutdown" OR "maintenance" "electrical instrumentation" Maharashtra', 
-            "National (India)": '(FMCG OR Beverage) "electrical instrumentation site engineer" India'
-        },
-        "networking": {
-            "Local (Maharashtra)": '(site:linkedin.com/company) "Procurement" ("Food" OR "FMCG") Pune', 
-            "National (India)": '(site:linkedin.com/company) "Procurement Head" ("Food" OR "Beverage") India'
-        }
-    }
     
-    query_dict = q_map.get(mode, q_map["panels"])
-    raw_data = []
-    for m in markets: 
-        search_term = query_dict.get(m, query_dict["Local (Maharashtra)"])
-        raw_data.extend(search_news(search_term, mx=3))
-
     analysis_prompt = f"""
     ROLE: You are an elite B2B Industrial Intelligence AI. Your ONLY target market is Food, Beverage, FMCG, and Dairy manufacturing plants in {target_region}.
+    
+    ACTION REQUIRED: Use your Google Search tool to search the live internet for CURRENT, ONGOING (2025/2026) food manufacturing plant expansions, new factory setups, or active technical maintenance shutdowns in {target_region}. 
+    CRITICAL: DO NOT return past, resolved, or historical issues. The requirement or bottleneck must be ACTIVE RIGHT NOW.
+    
     OUR SERVICES: Aryavarta Automation exclusively manufactures Low Voltage (LV) panels (MCC, PLC, VFD, Relay-based panels) and provides electrical automation services.
     
-    Context from live web search: {json.dumps(raw_data)}. 
-    
-    Using the context above and your internal knowledge, generate exactly {max_leads} highly detailed corporate targets. 
+    Extract exactly {max_leads} highly detailed corporate targets from your live search results matching this criteria. 
     You MUST return ONLY a valid JSON ARRAY of objects. Do not include markdown blocks.
     CRITICAL GEOGRAPHY: "lat" MUST be between 15.0 and 28.0. "lon" MUST be between 72.0 and 85.0.
     
     Exact keys required per object:
     - company, location, lat (float), lon (float), project, trust_score
-    - source_url: The exact URL from the context. If using internal knowledge, leave as "".
-    - exact_problem_quote: A verbatim 4-to-6 word copy-paste from the text that proves the problem exists (used for pinpoint URL highlighting). Leave as "" if no exact text exists.
+    - source_url: The EXACT live web URL you found this information on (e.g., a news article, tender portal, or company PR). MUST BE A REAL, WORKING LINK.
+    - exact_problem_quote: A verbatim 5-to-10 word copy-paste strictly from the URL's text that proves the problem/expansion exists (used for pinpoint URL highlighting).
     - company_overview: Detail their exact food/beverage manufacturing scope.
-    - strategic_vision: Their scaling/production goals.
+    - strategic_vision: Their current scaling/production goals.
     - partner_criteria: 1 sentence on vendor requirements.
-    - client_problem: Must be highly technical, verified, and specific to food processing (e.g., washdown environment failures).
+    - client_problem: Highly technical, verified bottleneck or expansion requirement actively happening now (e.g., washdown environment MCC failure, CIP automation upgrade).
     - primary_solution: Specifically how our MCC, PLC, VFD, or Relay panel directly solves it.
     - deal_expansion: Complementary products (cable trays, glands, sensors).
     - integration_workflow: How it installs in a food-grade environment.
     - resolution_roadmap: Brief steps.
-    - contact: Object with key_name, key_role, email, phone. (CRITICAL: Extract ONLY verified corporate HQ numbers and standard procurement emails).
+    - contact: Object with key_name, key_role, email, phone. (Extract ONLY verified corporate HQ numbers/emails).
     - call_script_custom: Write a highly professional, multi-stage B2B sales call script to close this specific deal. 
     """
     
@@ -227,16 +191,16 @@ def render_leads(leads, mode):
             with t_tech:
                 st.error(f"**Detailed Food Plant Bottleneck:**\n{l.get('client_problem')}")
                 
+                # --- NEW: WEB TEXT FRAGMENT DIRECT PINPOINT LINKS ---
                 src_url = l.get('source_url', '')
                 quote = l.get('exact_problem_quote', '')
                 if src_url and src_url.startswith("http") and quote:
+                    # Generates a link that opens the site and auto-scrolls/highlights the specific sentence
                     pinpoint_link = f"{src_url}#:~:text={urllib.parse.quote(quote)}"
-                    st.markdown(f"🎯 **[Direct Problem Source (Jumps to exact paragraph)]({pinpoint_link})**")
+                    st.markdown(f"🎯 **[Direct Source Evidence (Jumps to highlighted exact problem)]({pinpoint_link})**")
+                    st.info(f"**Verbatim Quote Extracted:** \"...{quote}...\"")
                 elif src_url and src_url.startswith("http"):
                     st.markdown(f"🔗 **[Company/Project Source Link]({src_url})**")
-                else:
-                    search_q = urllib.parse.quote(f'"{l.get("company", "")}" {l.get("client_problem", "")}')
-                    st.markdown(f"🔍 **[Verify Problem via Deep Search]({f'https://www.google.com/search?q={search_q}'})**")
                 
                 st.success(f"**Aryavarta LV Panel Solution:**\n{l.get('primary_solution')}")
                 st.info(f"**Resolution Roadmap:**\n{l.get('resolution_roadmap')}")
@@ -290,15 +254,15 @@ tab_p, tab_s, tab_n = st.tabs(["🏭 LV Panels & Sundries", "👷 E&I Site Servi
 
 with tab_p:
     if st.button("🚀 Scan Food Industry Panel Opportunities", type="primary", key="bp"):
-        with st.status("Scanning projects...", expanded=True): st.session_state.p_leads = scan_engine("panels")
+        with st.status("Scanning active 2025/2026 projects...", expanded=True): st.session_state.p_leads = scan_engine("panels")
     if 'p_leads' in st.session_state: render_leads(st.session_state.p_leads, "panels")
 
 with tab_s:
     if st.button("🚀 Scan Food Plant Maintenance Contracts", type="primary", key="bs"):
-        with st.status("Scanning contracts...", expanded=True): st.session_state.s_leads = scan_engine("services")
+        with st.status("Scanning active shutdown contracts...", expanded=True): st.session_state.s_leads = scan_engine("services")
     if 's_leads' in st.session_state: render_leads(st.session_state.s_leads, "services")
 
 with tab_n:
     if st.button("🤝 Discover Food/FMCG Partners", type="primary", key="bn"):
-        with st.status("Scanning directories...", expanded=True): st.session_state.n_leads = scan_engine("networking")
+        with st.status("Scanning corporate directories...", expanded=True): st.session_state.n_leads = scan_engine("networking")
     if 'n_leads' in st.session_state: render_leads(st.session_state.n_leads, "networking")
