@@ -1,6 +1,7 @@
 import streamlit as st
 from google import genai
 import json, urllib.parse, math, time, pandas as pd, requests, re, datetime
+from duckduckgo_search import DDGS
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout="wide")
@@ -35,6 +36,17 @@ def calc_dist(lat, lon):
 def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
+def search_news(q, mx=4):
+    res = []
+    try:
+        with DDGS() as d:
+            for r in d.text(q, max_results=mx): 
+                # FIXED: Now capturing the exact URL to build the Pinpoint link
+                res.append(f"Title: {r.get('title')} | URL: {r.get('href')} | Body: {r.get('body')}")
+    except Exception: 
+        pass 
+    return res
+
 def call_gemini(prompt):
     model_name = 'gemini-3.6-flash' 
     for i in range(3):
@@ -55,27 +67,51 @@ def scan_engine(mode):
     if test_mode: return []
 
     target_region = " and ".join(markets)
+    q_map = {
+        "panels": {
+            "Local (Maharashtra)": '(Food OR Beverage OR Dairy OR FMCG) "manufacturing plant" OR "expansion" ("MCC panel" OR "PLC panel" OR "VFD") Pune OR Maharashtra', 
+            "National (India)": '(Food OR FMCG OR Brewery) "factory setup" ("Low voltage panel" OR "automation") India'
+        },
+        "services": {
+            "Local (Maharashtra)": '(Food OR Dairy) "plant shutdown" OR "maintenance" "electrical instrumentation" Maharashtra', 
+            "National (India)": '(FMCG OR Beverage) "electrical instrumentation site engineer" India'
+        },
+        "networking": {
+            "Local (Maharashtra)": '(site:linkedin.com/company) "Procurement" ("Food" OR "FMCG") Pune', 
+            "National (India)": '(site:linkedin.com/company) "Procurement Head" ("Food" OR "Beverage") India'
+        }
+    }
     
+    query_dict = q_map.get(mode, q_map["panels"])
+    raw_data = []
+    for m in markets: 
+        search_term = query_dict.get(m, query_dict["Local (Maharashtra)"])
+        raw_data.extend(search_news(search_term, mx=3))
+
     analysis_prompt = f"""
     ROLE: You are an elite B2B Industrial Intelligence AI. Your ONLY target market is Food, Beverage, FMCG, and Dairy manufacturing plants in {target_region}.
     OUR SERVICES: Aryavarta Automation exclusively manufactures Low Voltage (LV) panels (MCC, PLC, VFD, Relay-based panels) and provides electrical automation services.
     
-    Using your deep internal knowledge of the Indian manufacturing sector, generate exactly {max_leads} highly detailed corporate targets matching this criteria. 
+    Context from live web search: {json.dumps(raw_data)}. 
+    
+    Using the context above and your internal knowledge, generate exactly {max_leads} highly detailed corporate targets. 
     You MUST return ONLY a valid JSON ARRAY of objects. Do not include markdown blocks.
     CRITICAL GEOGRAPHY: "lat" MUST be between 15.0 and 28.0. "lon" MUST be between 72.0 and 85.0.
     
     Exact keys required per object:
-    - company, location, lat (float), lon (float), project, trust_score, source_url
+    - company, location, lat (float), lon (float), project, trust_score
+    - source_url: The exact URL from the context. If using internal knowledge, leave as "".
+    - exact_problem_quote: A verbatim 4-to-6 word copy-paste from the text that proves the problem exists (used for pinpoint URL highlighting). Leave as "" if no exact text exists.
     - company_overview: Detail their exact food/beverage manufacturing scope.
     - strategic_vision: Their scaling/production goals.
     - partner_criteria: 1 sentence on vendor requirements.
-    - client_problem: Must be highly technical, verified, and specific to food processing (e.g., washdown environment failures, CIP automation issues, conveyor motor sync issues).
-    - primary_solution: Specifically how our MCC, PLC, VFD, or Relay panel directly solves their food industry bottleneck.
+    - client_problem: Must be highly technical, verified, and specific to food processing (e.g., washdown environment failures).
+    - primary_solution: Specifically how our MCC, PLC, VFD, or Relay panel directly solves it.
     - deal_expansion: Complementary products (cable trays, glands, sensors).
     - integration_workflow: How it installs in a food-grade environment.
     - resolution_roadmap: Brief steps.
     - contact: Object with key_name, key_role, email, phone. (CRITICAL: Extract ONLY verified corporate HQ numbers and standard procurement emails).
-    - call_script_custom: Write a highly professional, multi-stage B2B sales call script to close this specific deal. Format must include: 1. Gatekeeper Bypass, 2. Pattern Interrupt, 3. The Hook (targeting their specific food bottleneck), 4. Aryavarta LV Panel Value Prop, 5. Low-friction Call to Action.
+    - call_script_custom: Write a highly professional, multi-stage B2B sales call script to close this specific deal. 
     """
     
     try: 
@@ -134,7 +170,7 @@ def render_leads(leads, mode):
         
         corp_email = f"Subject: Automation & LV Panel Empanelment - {l.get('company')}\n\nDear {l.get('contact',{}).get('key_name', 'Procurement Team')},\n\nWe manufacture IE-compliant Low Voltage Panels (MCC, PLC, VFD) specifically designed for food and beverage operations. We understand the operational priority of addressing: {l.get('client_problem', '')}\n\nAryavarta Engineered Solution: {l.get('primary_solution', '')}\nTarget Requirement: {qty_str}\n\nWe welcome the opportunity to submit our profile for your Vendor List.\n\nsupport@aryavartaautomation.com\n+91 8045802403"
         wa_msg = f"Hello {l.get('contact',{}).get('key_name', 'Sir/Madam')},\nGreetings from Aryavarta Automation (Pune). We specialize in LV/MCC panels for the food industry and can directly solve {str(l.get('client_problem', ''))[:60]}... Can we share our technical catalog? www.aryavartaautomation.com"
-        call_script = l.get('call_script_custom', 'No script generated. Fallback: Call and introduce Aryavarta LV panels.')
+        call_script = l.get('call_script_custom', 'No script generated.')
         inmail_text = f"Hi {l.get('contact',{}).get('key_name')}, I lead partnerships at Aryavarta Automation. We provide IE-compliant LV/MCC panels for food industries. Given your focus at {l.get('company')}, I'd welcome the opportunity to connect."
 
         sheet_outreach = f"👤 {l.get('contact',{}).get('key_name', '')} | 📧 {l.get('contact',{}).get('email', '')} | 📞 {l.get('contact',{}).get('phone', '')}\n\n📧 EMAIL:\n{corp_email}\n\n💬 WHATSAPP:\n{wa_msg}\n\n📞 CALL SCRIPT:\n{call_script}"
@@ -179,6 +215,19 @@ def render_leads(leads, mode):
 
             with t_tech:
                 st.error(f"**Detailed Food Plant Bottleneck:**\n{l.get('client_problem')}")
+                
+                # --- FIXED: DYNAMIC PINPOINT PROBLEM SOURCE LINK ---
+                src_url = l.get('source_url', '')
+                quote = l.get('exact_problem_quote', '')
+                if src_url and src_url.startswith("http") and quote:
+                    pinpoint_link = f"{src_url}#:~:text={urllib.parse.quote(quote)}"
+                    st.markdown(f"🎯 **[Direct Problem Source (Jumps to exact paragraph)]({pinpoint_link})**")
+                elif src_url and src_url.startswith("http"):
+                    st.markdown(f"🔗 **[Company/Project Source Link]({src_url})**")
+                else:
+                    search_q = urllib.parse.quote(f'"{l.get("company", "")}" {l.get("client_problem", "")}')
+                    st.markdown(f"🔍 **[Verify Problem via Deep Search]({f'https://www.google.com/search?q={search_q}'})**")
+                
                 st.success(f"**Aryavarta LV Panel Solution:**\n{l.get('primary_solution')}")
                 st.info(f"**Resolution Roadmap:**\n{l.get('resolution_roadmap')}")
 
