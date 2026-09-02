@@ -48,9 +48,9 @@ def search_news(q, mx=4):
     return res
 
 def call_gemini(prompt):
-    # Using Google's most intelligent Pro model for elite B2B reasoning
-    model_name = 'gemini-pro-latest' 
-    for i in range(2):
+    # Fixed: Using the proven, high-capacity Flash model to utilize the 1,500 daily quota
+    model_name = 'gemini-flash-latest' 
+    for i in range(3):
         try:
             r = client.models.generate_content(
                 model=model_name, 
@@ -59,16 +59,15 @@ def call_gemini(prompt):
             )
             return json.loads(r.text)
         except Exception as e:
-            if "404" in str(e): 
-                model_name = 'gemini-flash-latest' # Fallback to reliable stable flash
-            if i == 0: time.sleep(3)
-            else: raise e
+            if "429" in str(e):
+                time.sleep(4) # Wait and retry if Google's server is momentarily busy
+            elif i == 2:
+                raise e
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
     if test_mode: return []
 
-    # STRICT FOOD/FMCG/BEVERAGE & LV PANEL TARGETING
     q_map = {
         "panels": {
             "Local (Maharashtra)": '(Food OR Beverage OR Dairy OR FMCG) "manufacturing plant" OR "expansion" ("MCC panel" OR "PLC panel" OR "VFD") Pune OR Maharashtra', 
@@ -134,6 +133,9 @@ def scan_engine(mode):
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
+    if not leads: 
+        return # Prevents false 'Targets were found' warning if AI crashed
+        
     filtered_leads = [l for l in leads if l['dist'] <= max_dist_filter]
     if not filtered_leads:
         st.warning(f"⚠️ Targets were found, but none were within your {max_dist_filter} km filter limit.")
