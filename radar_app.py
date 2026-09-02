@@ -41,26 +41,37 @@ def search_news(q, mx=4):
     try:
         with DDGS() as d:
             for r in d.text(q, max_results=mx): 
-                # FIXED: Now capturing the exact URL to build the Pinpoint link
                 res.append(f"Title: {r.get('title')} | URL: {r.get('href')} | Body: {r.get('body')}")
     except Exception: 
         pass 
     return res
 
 def call_gemini(prompt):
-    model_name = 'gemini-3.6-flash' 
-    for i in range(3):
-        try:
-            r = client.models.generate_content(
-                model=model_name, 
-                contents=prompt
-            )
-            clean_text = r.text.replace("```json", "").replace("```", "").strip()
-            return json.loads(clean_text)
-        except Exception as e:
-            if i == 2:
-                raise e
-            time.sleep(3)
+    # FIXED: Multi-model fallback cascade added to bypass 503 traffic jams
+    fallback_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']
+    
+    for model_name in fallback_models:
+        wait_time = 2
+        for attempt in range(3):
+            try:
+                r = client.models.generate_content(
+                    model=model_name, 
+                    contents=prompt
+                )
+                clean_text = r.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(clean_text)
+            except Exception as e:
+                error_msg = str(e)
+                # If Google is overloaded, trigger exponential backoff
+                if "503" in error_msg or "429" in error_msg:
+                    if attempt == 2:
+                        break  # Move to the next backup model
+                    time.sleep(wait_time)
+                    wait_time *= 2 
+                else:
+                    break  # Jump immediately to next model on other errors
+                    
+    raise Exception("Google's servers are completely overwhelmed across all model tiers. Please wait 2 minutes and click scan again.")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
@@ -216,7 +227,6 @@ def render_leads(leads, mode):
             with t_tech:
                 st.error(f"**Detailed Food Plant Bottleneck:**\n{l.get('client_problem')}")
                 
-                # --- FIXED: DYNAMIC PINPOINT PROBLEM SOURCE LINK ---
                 src_url = l.get('source_url', '')
                 quote = l.get('exact_problem_quote', '')
                 if src_url and src_url.startswith("http") and quote:
