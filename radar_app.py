@@ -36,7 +36,6 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # Fixed: Pointing explicitly to the active Free Tier quota model
     model_name = 'gemini-3.6-flash' 
     for i in range(3):
         try:
@@ -205,13 +204,13 @@ def render_leads(leads, mode):
                 o_em, o_wa, o_call, o_li = st.tabs(["📧 Email", "💬 WhatsApp", "📞 Professional Call Script", "💼 LinkedIn"])
                 
                 with o_em:
-                    st.text_area("Ready Email:", value=corp_email, height=180)
+                    st.text_area("Ready Email:", value=corp_email, height=180, key=f"em_{mode}_{i}")
                     em_to = l.get('contact',{}).get('email','')
                     gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={em_to if '@' in em_to else ''}&su={urllib.parse.quote('Automation & LV Panel Empanelment - Aryavarta')}&body={urllib.parse.quote(corp_email)}"
                     st.link_button("🚀 1-Click Send via Gmail", gmail_url, type="primary")
                     
                 with o_wa:
-                    st.text_area("Ready WhatsApp:", value=wa_msg, height=120)
+                    st.text_area("Ready WhatsApp:", value=wa_msg, height=120, key=f"wa_{mode}_{i}")
                     clean_phone = re.sub(r'[^0-9]', '', str(l.get('contact',{}).get('phone','')))
                     wa_url = f"https://api.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(wa_msg)}" if clean_phone else f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_msg)}"
                     st.link_button("💬 1-Click Send via WhatsApp", wa_url, type="secondary")
@@ -220,7 +219,7 @@ def render_leads(leads, mode):
                     st.markdown(call_script)
                     
                 with o_li:
-                    st.text_area("LinkedIn Connect:", value=inmail_text, height=100)
+                    st.text_area("LinkedIn Connect:", value=inmail_text, height=100, key=f"li_{mode}_{i}")
                     st.link_button("💼 Open LinkedIn Profile", l.get('link'))
 
                 st.divider()
