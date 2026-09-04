@@ -39,8 +39,8 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # FIXED: Strictly using Pro models. Flash models often reject the Search tool and cause 404 crashes.
-    fallback_models = ['gemini-1.5-pro', 'gemini-1.5-pro-001', 'gemini-1.5-pro-002'] 
+    # FIXED: Active 2026 Production Models. 1.0 and 1.5 are fully discontinued.
+    fallback_models = ['gemini-3.1-pro', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'] 
     
     last_error = ""
     for model_name in fallback_models:
@@ -59,11 +59,10 @@ def call_gemini(prompt):
             except Exception as e:
                 last_error = str(e)
                 if "404" in last_error:
-                    break # Skip this specific string if the region doesn't recognize it
+                    break 
                 
                 if "429" in last_error or "503" in last_error:
                     if i == 2:
-                        # Exposes the TRUE billing/quota error if the budget hasn't synced yet
                         raise Exception(f"Google Cloud Quota limit hit. If you just paid, wait 15 mins. Details: {last_error}")
                     time.sleep(5) 
                 else:
