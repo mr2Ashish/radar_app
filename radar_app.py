@@ -39,8 +39,8 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # FIXED: Replaced generic aliases with strict -002 production release tags required by Pay-As-You-Go
-    fallback_models = ['gemini-1.5-pro-002', 'gemini-1.5-flash-002'] 
+    # FIXED: Strictly using Pro models. Flash models often reject the Search tool and cause 404 crashes.
+    fallback_models = ['gemini-1.5-pro', 'gemini-1.5-pro-001', 'gemini-1.5-pro-002'] 
     
     last_error = ""
     for model_name in fallback_models:
@@ -59,13 +59,17 @@ def call_gemini(prompt):
             except Exception as e:
                 last_error = str(e)
                 if "404" in last_error:
-                    break 
-                if "503" in last_error or "429" in last_error:
+                    break # Skip this specific string if the region doesn't recognize it
+                
+                if "429" in last_error or "503" in last_error:
+                    if i == 2:
+                        # Exposes the TRUE billing/quota error if the budget hasn't synced yet
+                        raise Exception(f"Google Cloud Quota limit hit. If you just paid, wait 15 mins. Details: {last_error}")
                     time.sleep(5) 
                 else:
                     break 
                     
-    raise Exception(f"Live-Search API Error: {last_error}")
+    raise Exception(f"API Error. Verify your billing account is active. Last error: {last_error}")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
