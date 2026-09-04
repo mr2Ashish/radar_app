@@ -39,8 +39,8 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # AUTOMATED CASCADE: Tries Pro first, instantly falls back to Flash if rejected
-    fallback_models = ['gemini-1.5-pro', 'gemini-1.5-flash'] 
+    # FIXED: Added expanded version suffixes to guarantee one works in your Cloud region
+    fallback_models = ['gemini-1.5-pro', 'gemini-1.5-pro-latest', 'gemini-1.5-flash', 'gemini-1.5-flash-latest'] 
     
     for model_name in fallback_models:
         for i in range(3):
@@ -53,16 +53,22 @@ def call_gemini(prompt):
                         tools=[{"google_search": {}}] 
                     )
                 )
-                # FIXED: Changed to single quotes to prevent copy-paste syntax errors
                 clean_text = r.text.replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_text)
             except Exception as e:
+                # If this is the absolute last attempt on the last model, force the error
+                if model_name == fallback_models[-1] and (i == 2 or "404" in str(e)):
+                    raise Exception(f"All fallback models failed. Last error: {str(e)}")
+                    
                 if "404" in str(e):
-                    break 
+                    break # Model version not found in region, immediately skip to the next model
+                
                 if "503" in str(e) or "429" in str(e):
                     time.sleep(5) 
-                if i == 2 and model_name == fallback_models[-1]:
-                    raise e
+                elif i == 2:
+                    break # Exhausted retries for this model, move to next
+
+    raise Exception("Critical: Failed to connect to any Gemini model.")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
@@ -102,7 +108,11 @@ def scan_engine(mode):
     try: 
         base_leads = call_gemini(analysis_prompt)
     except Exception as e: 
-        st.error(f"⚠️ Search Failed. Google's live-search servers timed out. Error details: {e}")
+        st.error(f"⚠️ Search Failed. Error details: {e}")
+        return []
+
+    # FIXED: Failsafe to prevent the 'NoneType' crash if AI returns empty data
+    if not base_leads:
         return []
 
     leads = []
