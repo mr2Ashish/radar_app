@@ -14,7 +14,9 @@ with st.sidebar:
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
     if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook URL:", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
-    max_leads = st.slider("Target Intelligence Profiles:", min_value=2, max_value=20, value=10)
+    
+    max_leads = st.slider("Target Intelligence Profiles:", min_value=1, max_value=20, value=10) 
+    
     st.divider()
     max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 3000, 3000)
     test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=False)
@@ -37,7 +39,7 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    model_name = 'gemini-3.6-flash' 
+    model_name = 'gemini-1.5-pro' 
     for i in range(3):
         try:
             r = client.models.generate_content(
@@ -45,15 +47,16 @@ def call_gemini(prompt):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    tools=[{"google_search": {}}] # Natively grounds the AI in live Google Search
+                    tools=[{"google_search": {}}] 
                 )
             )
             clean_text = r.text.replace("```json", "").replace("```", "").strip()
             return json.loads(clean_text)
         except Exception as e:
+            if "503" in str(e) or "429" in str(e):
+                time.sleep(5) 
             if i == 2:
                 raise e
-            time.sleep(3)
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
@@ -64,23 +67,24 @@ def scan_engine(mode):
     analysis_prompt = f"""
     ROLE: You are an elite B2B Industrial Intelligence AI. Your ONLY target market is Food, Beverage, FMCG, and Dairy manufacturing plants in {target_region}.
     
-    ACTION REQUIRED: Use your Google Search tool to search the live internet for CURRENT, ONGOING (2025/2026) food manufacturing plant expansions, new factory setups, or active technical maintenance shutdowns in {target_region}. 
-    CRITICAL: DO NOT return past, resolved, or historical issues. The requirement or bottleneck must be ACTIVE RIGHT NOW.
+    ACTION REQUIRED: Use your Google Search tool to search the live internet for CURRENT, ONGOING (2025/2026) food manufacturing plant expansions, new factory setups, or active technical maintenance bottlenecks in {target_region}. 
+    Search for exact phrases like "FMCG plant expansion", "Food factory automation", or "Dairy plant shutdown maintenance".
+    CRITICAL: DO NOT return past or resolved issues. The requirement must be ACTIVE NOW.
     
-    OUR SERVICES: Aryavarta Automation exclusively manufactures Low Voltage (LV) panels (MCC, PLC, VFD, Relay-based panels) and provides electrical automation services.
+    OUR SERVICES: Aryavarta Automation exclusively manufactures Low Voltage (LV) panels (MCC, PLC, VFD) and provides electrical automation services.
     
-    Extract exactly {max_leads} highly detailed corporate targets from your live search results matching this criteria. 
+    Extract exactly {max_leads} highly detailed corporate targets from your live search results. 
     You MUST return ONLY a valid JSON ARRAY of objects. Do not include markdown blocks.
     CRITICAL GEOGRAPHY: "lat" MUST be between 15.0 and 28.0. "lon" MUST be between 72.0 and 85.0.
     
     Exact keys required per object:
     - company, location, lat (float), lon (float), project, trust_score
-    - source_url: The EXACT live web URL you found this information on (e.g., a news article, tender portal, or company PR). MUST BE A REAL, WORKING LINK.
-    - exact_problem_quote: A verbatim 5-to-10 word copy-paste strictly from the URL's text that proves the problem/expansion exists (used for pinpoint URL highlighting).
+    - source_url: The EXACT live web URL you found this information on. MUST BE A REAL, WORKING LINK.
+    - exact_problem_quote: A verbatim 5-to-10 word copy-paste strictly from the URL's text proving the problem/expansion exists.
     - company_overview: Detail their exact food/beverage manufacturing scope.
     - strategic_vision: Their current scaling/production goals.
     - partner_criteria: 1 sentence on vendor requirements.
-    - client_problem: Highly technical, verified bottleneck or expansion requirement actively happening now (e.g., washdown environment MCC failure, CIP automation upgrade).
+    - client_problem: Highly technical, verified bottleneck actively happening now (e.g., washdown environment MCC failure, CIP upgrade).
     - primary_solution: Specifically how our MCC, PLC, VFD, or Relay panel directly solves it.
     - deal_expansion: Complementary products (cable trays, glands, sensors).
     - integration_workflow: How it installs in a food-grade environment.
@@ -92,7 +96,7 @@ def scan_engine(mode):
     try: 
         base_leads = call_gemini(analysis_prompt)
     except Exception as e: 
-        st.error(f"⚠️ Search Failed. Ensure your API Key is valid and try lowering target count to 5. Error: {e}")
+        st.error(f"⚠️ Search Failed. Google's live-search servers timed out. Error details: {e}")
         return []
 
     leads = []
@@ -167,6 +171,7 @@ def render_leads(leads, mode):
     c1, c2, c3 = st.columns([2, 1, 1])
     c1.subheader(f"🛡️ Active {len(filtered_leads)} Corporate Dossiers")
     
+    import requests
     if c2.button(f"☁️ Sync to Sheets CRM", key=f"s_{mode}"):
         if WEBHOOK:
             success_count = 0
@@ -191,16 +196,17 @@ def render_leads(leads, mode):
             with t_tech:
                 st.error(f"**Detailed Food Plant Bottleneck:**\n{l.get('client_problem')}")
                 
-                # --- NEW: WEB TEXT FRAGMENT DIRECT PINPOINT LINKS ---
                 src_url = l.get('source_url', '')
                 quote = l.get('exact_problem_quote', '')
                 if src_url and src_url.startswith("http") and quote:
-                    # Generates a link that opens the site and auto-scrolls/highlights the specific sentence
                     pinpoint_link = f"{src_url}#:~:text={urllib.parse.quote(quote)}"
                     st.markdown(f"🎯 **[Direct Source Evidence (Jumps to highlighted exact problem)]({pinpoint_link})**")
                     st.info(f"**Verbatim Quote Extracted:** \"...{quote}...\"")
                 elif src_url and src_url.startswith("http"):
                     st.markdown(f"🔗 **[Company/Project Source Link]({src_url})**")
+                else:
+                    search_q = urllib.parse.quote(f'"{l.get("company", "")}" {l.get("client_problem", "")}')
+                    st.markdown(f"🔍 **[Verify Active Problem via Google Deep Search]({f'https://www.google.com/search?q={search_q}'})**")
                 
                 st.success(f"**Aryavarta LV Panel Solution:**\n{l.get('primary_solution')}")
                 st.info(f"**Resolution Roadmap:**\n{l.get('resolution_roadmap')}")
@@ -254,15 +260,15 @@ tab_p, tab_s, tab_n = st.tabs(["🏭 LV Panels & Sundries", "👷 E&I Site Servi
 
 with tab_p:
     if st.button("🚀 Scan Food Industry Panel Opportunities", type="primary", key="bp"):
-        with st.status("Scanning active 2025/2026 projects...", expanded=True): st.session_state.p_leads = scan_engine("panels")
+        with st.status("Scanning live Google results...", expanded=True): st.session_state.p_leads = scan_engine("panels")
     if 'p_leads' in st.session_state: render_leads(st.session_state.p_leads, "panels")
 
 with tab_s:
     if st.button("🚀 Scan Food Plant Maintenance Contracts", type="primary", key="bs"):
-        with st.status("Scanning active shutdown contracts...", expanded=True): st.session_state.s_leads = scan_engine("services")
+        with st.status("Scanning live Google results...", expanded=True): st.session_state.s_leads = scan_engine("services")
     if 's_leads' in st.session_state: render_leads(st.session_state.s_leads, "services")
 
 with tab_n:
     if st.button("🤝 Discover Food/FMCG Partners", type="primary", key="bn"):
-        with st.status("Scanning corporate directories...", expanded=True): st.session_state.n_leads = scan_engine("networking")
+        with st.status("Scanning live Google results...", expanded=True): st.session_state.n_leads = scan_engine("networking")
     if 'n_leads' in st.session_state: render_leads(st.session_state.n_leads, "networking")
