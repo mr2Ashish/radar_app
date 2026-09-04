@@ -39,7 +39,8 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    fallback_models = ['gemini-1.5-pro', 'gemini-1.5-flash'] 
+    # FIXED: Replaced generic aliases with strict -002 production release tags required by Pay-As-You-Go
+    fallback_models = ['gemini-1.5-pro-002', 'gemini-1.5-flash-002'] 
     
     last_error = ""
     for model_name in fallback_models:
@@ -53,7 +54,6 @@ def call_gemini(prompt):
                         tools=[{"google_search": {}}] 
                     )
                 )
-                # FIXED: Uses string multiplication to prevent copy-paste editor breakage
                 clean_text = r.text.replace('`' * 3 + 'json', '').replace('`' * 3, '').strip()
                 return json.loads(clean_text)
             except Exception as e:
