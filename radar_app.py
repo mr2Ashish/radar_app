@@ -1,12 +1,39 @@
 import streamlit as st
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
 import json, urllib.parse, math, time, requests, re
 
-# --- 1. CONFIGURATION ---
+# --- 1. CONFIGURATION & SCHEMAS ---
 st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout="wide")
 API_KEY = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
 WEBHOOK = st.secrets.get("WEBHOOK_URL", "") if hasattr(st, "secrets") else ""
+
+class Contact(BaseModel):
+    key_name: str
+    key_role: str
+    email: str
+    phone: str
+
+class Lead(BaseModel):
+    company: str
+    location: str
+    lat: float = Field(default=18.5204)
+    lon: float = Field(default=73.8567)
+    project: str
+    trust_score: str
+    source_url: str
+    exact_problem_quote: str
+    company_overview: str
+    strategic_vision: str
+    partner_criteria: str
+    client_problem: str
+    primary_solution: str
+    deal_expansion: str
+    integration_workflow: str
+    resolution_roadmap: str
+    contact: Contact
+    call_script_custom: str
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
@@ -28,62 +55,49 @@ def calc_dist(lat, lon):
         dlat, dlon = math.radians(float(lat) - PUNE_COORDS["lat"]), math.radians(float(lon) - PUNE_COORDS["lon"])
         a = math.sin(dlat/2)**2 + math.cos(math.radians(PUNE_COORDS["lat"])) * math.cos(math.radians(float(lat))) * math.sin(dlon/2)**2
         return round(6371.0 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))), 1)
-    except:
+    except Exception:
         return 15.0 
 
 def call_gemini(prompt):
-    models = ['gemini-3.6-pro', 'gemini-3.6-flash'] 
+    # REAL WORLD FIX: Using actual production models and native Pydantic schema enforcement
+    models = ['gemini-2.0-flash', 'gemini-1.5-pro'] 
     err = ""
     for m in models:
         for _ in range(3):
             try:
                 r = client.models.generate_content(
-                    model=m, contents=prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json", tools=[{"google_search": {}}])
+                    model=m, 
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=list[Lead],
+                        tools=[{"google_search": {}}]
+                    )
                 )
                 if not getattr(r, 'text', None): raise Exception("Empty AI text.")
-                return json.loads(r.text.replace('`'*3+'json', '').replace('`'*3, '').strip())
+                return json.loads(r.text)
             except Exception as e:
                 err = str(e)
-                if "404" in err: break 
                 if "429" in err or "503" in err: time.sleep(5) 
                 else: break 
-    raise Exception(f"API Error. {err}")
+    raise Exception(f"API Error: {err}")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
     if test_mode: return []
     
-    # FIXED: Relaxed constraints. AI will now pull standard operational factories if "news" is missing.
-    prompt = f"""ROLE: Elite B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
+    prompt = f"""ROLE: B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
     ACTION: Use Google Search to identify major manufacturing plants. Look for recent expansions OR standard active operational factories.
-    CRITICAL: NEVER RETURN AN EMPTY ARRAY []. If recent news is unavailable, identify established large-scale factories (e.g., major dairies, snack plants) in the region and generate profiles detailing their highly probable MCC/PLC automation needs.
-    Extract up to {max_leads} targets. Return ONLY a valid JSON ARRAY of objects. 
-    Required keys: company, location, lat (float, default to 18.52 if unknown), lon (float, default to 73.85 if unknown), project, trust_score, source_url (company website if exact link unavailable), exact_problem_quote, company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how Aryavarta MCC/PLC/VFD panels solve it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
+    Extract up to {max_leads} highly detailed corporate targets. You MUST return at least 2-3 targets based on regional industrial zones like Pune and Nashik. 
+    Focus entirely on how Aryavarta Automation's MCC/PLC/VFD low-voltage panels can upgrade or maintain their specific infrastructure."""
     
-    try: leads = call_gemini(prompt)
-    except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); leads = []
-    
-    # FIXED: The Ultimate Failsafe. If the AI completely flatlines, inject a seed profile to keep the app running.
-    if not leads: 
-        st.toast("⚠️ Google Search returned zero live results. Injecting Regional Seed Profile to maintain CRM workflow.")
-        leads = [{
-            "company": "Regional FMCG/Dairy Plant (Auto-Recovered Lead)",
-            "location": "Pune, Maharashtra", "lat": 18.5204, "lon": 73.8567,
-            "project": "Automation Upgrades & Maintenance", "trust_score": "Estimated Base",
-            "source_url": "https://www.google.com/search?q=Food+Manufacturing+Pune",
-            "exact_problem_quote": "N/A - System Estimated Profile",
-            "company_overview": "Major regional food processing facility requiring industrial automation.",
-            "strategic_vision": "Scaling production and reducing downtime in washdown environments.",
-            "partner_criteria": "Requires IE-compliant LV panels and immediate local support.",
-            "client_problem": "Aging MCC panels causing intermittent production line halts.",
-            "primary_solution": "Aryavarta custom MCC/PLC panel replacement with IP65 washdown rating.",
-            "deal_expansion": "Cable trays, field sensors, and VFD integration.",
-            "integration_workflow": "Phased weekend installation to prevent production loss.",
-            "resolution_roadmap": "1. Site survey 2. Panel design 3. FAT 4. Installation.",
-            "contact": {"key_name": "Plant Maintenance Head", "key_role": "Decision Maker", "email": "info@example.com", "phone": "+91 0000000000"},
-            "call_script_custom": "Hello, this is Aryavarta Automation. We specialize in LV panels for the food industry and noticed potential optimization areas in your facility..."
-        }]
+    try: 
+        leads = call_gemini(prompt)
+    except Exception as e: 
+        st.error(f"⚠️ Scan Failed: {e}")
+        return []
+
+    if not leads: return []
 
     for l in leads:
         l["dist"] = calc_dist(l.get("lat"), l.get("lon"))
@@ -92,7 +106,7 @@ def scan_engine(mode):
             l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
             kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
             l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
-        except: pass
+        except Exception: pass
 
     return sorted(leads, key=lambda x: x.get("dist", 0))
 
@@ -101,7 +115,7 @@ def render_leads(leads, mode):
     filtered_leads = [l for l in leads if l.get('dist', 0) <= max_dist_filter]
     
     if not filtered_leads:
-        st.warning(f"⚠️ No targets found strictly within {max_dist_filter} km. Displaying closest available profiles.")
+        st.warning(f"⚠️ No targets strictly within {max_dist_filter} km. Showing closest profiles.")
         filtered_leads = leads[:max_leads]
     
     c1, c2, c3 = st.columns(3)
