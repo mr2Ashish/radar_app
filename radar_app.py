@@ -193,7 +193,6 @@ def render_leads(leads, mode):
 
     crm_data = []
     
-    # 1. First Pass: Generate the rich-text payload for the Webhook CRM Sync
     for i, l in enumerate(leads):
         dist, exp = l.get('dist', 0), l.get('dist', 0) > 1500
         qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
@@ -206,12 +205,22 @@ def render_leads(leads, mode):
         qa_term = st.session_state.get(f"fs_{mode}_{i}", "FAT Included")
         sales_notes = st.session_state.get(f"n_{mode}_{i}", "")
         
-        # RICH TEXT COMPILATION FOR GOOGLE SHEETS
+        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your facility's scale and can assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
+        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
+
         sheet_profile = f"🏭 OVERVIEW:\n{l.get('company_overview', '')}\n\n🎯 VISION:\n{l.get('strategic_vision', '')}\n\n🤝 CRITERIA:\n{l.get('partner_criteria', '')}"
         sheet_tech = f"⚠️ PROBLEM:\n{l.get('client_problem', '')}\n\n✅ SOLUTION:\n{l.get('primary_solution', '')}\n\n🛣️ ROADMAP:\n{l.get('resolution_roadmap', '')}"
         sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
         sheet_score = f"📋 REQUIREMENT: {q_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {qa_term}"
-        sheet_outreach = f"👤 {c.get('key_name', 'N/A')} | 📧 {c.get('email', 'N/A')} | 📞 {c.get('phone', 'N/A')}\n\n📞 SCRIPT:\n{l.get('call_script_custom', '')}"
+        
+        # FIXED: Fully compiling contact details, master script, email copy, and WhatsApp copy into the outreach column
+        sheet_outreach = (
+            f"👤 CONTACT: {c.get('key_name', 'N/A')} ({c.get('key_role', 'N/A')})\n"
+            f"📧 EMAIL: {c.get('email', 'N/A')} | 📞 PHONE: {c.get('phone', 'N/A')}\n\n"
+            f"📞 MASTER CALL SCRIPT:\n{l.get('call_script_custom', 'N/A')}\n\n"
+            f"✉️ EMAIL TEMPLATE:\n{mail_txt}\n\n"
+            f"💬 WHATSAPP TEMPLATE:\n{wa_txt}"
+        )
 
         crm_data.append({
             "mode": mode.capitalize(),
@@ -226,12 +235,11 @@ def render_leads(leads, mode):
             "email": c.get('email', ''),
             "phone": c.get('phone', ''),
             "source_url": l.get('source_url', ''),
-            # CRITICAL FIX: Re-attaching the rich text tabs to the CRM Webhook Payload
             "company_profile": sheet_profile,     
             "tech_bottleneck": sheet_tech,        
             "deal_expansion": sheet_deal,         
             "commercial_scoring": sheet_score,    
-            "ready_outreach": sheet_outreach,     
+            "ready_outreach": sheet_outreach,     # Fully packed outreach payload
             "sales_notes": sales_notes            
         })
 
@@ -243,7 +251,6 @@ def render_leads(leads, mode):
             st.toast(f"✅ Synced {success} dossiers entirely to Google Sheets CRM!")
         else: st.warning("⚠️ Webhook missing.")
 
-    # 2. Second Pass: Render the actual Streamlit UI expanders
     for i, l in enumerate(leads):
         dist, exp = l.get('dist', 0), l.get('dist', 0) > 1500
         qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
