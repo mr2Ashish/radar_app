@@ -22,22 +22,26 @@ class Lead(BaseModel):
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
-    # STRICT DIRECTIVES FOR REAL WORLD DATA
-    source_url: str = Field(description="The exact, direct URL to the source news article, press release, or company blog. MUST NOT contain 'google.com' or 'google.co.in'.")
-    exact_problem_quote: str = Field(description="A verbatim sentence or paragraph copied directly from the article proving they are currently expanding, upgrading, or facing downtime.")
+    source_url: str = Field(description="The exact URL to the specific article or company press release. MUST NOT contain 'google.', 'indiamart', or 'justdial'.")
+    exact_problem_quote: str = Field(description="A verbatim, copy-pasted sentence directly from the article proving they are currently expanding or facing downtime.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
-    client_problem: str = Field(description="The immediate, active problem they are facing right now (e.g., aging MCC panels, plant expansion requiring new PLCs, frequent breakdowns).")
+    client_problem: str = Field(description="The immediate, active problem they are facing right now (e.g., aging panels, plant expansion, breakdowns).")
     primary_solution: str
     deal_expansion: str
     integration_workflow: str
     resolution_roadmap: str
     contact: Contact
-    call_script_custom: str = Field(description="A highly detailed B2B sales call script including: 1. Gatekeeper bypass, 2. Value Proposition based on their ACTIVE problem, 3. CTA.")
+    call_script_custom: str
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
+    if st.button("🗑️ Clear Cache & Reset App", type="primary"):
+        st.session_state.clear()
+        st.rerun()
+        
+    st.divider()
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
     if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook URL:", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
@@ -94,11 +98,11 @@ def scan_engine(mode):
     
     CRITICAL QUALITY CONTROL:
     1. DO NOT return companies that are operating normally. They MUST have an active requirement right now.
-    2. Search explicitly for news articles, press releases, or tenders combining the location with keywords like: "facility expansion", "automation upgrade", "production halted", "new plant setup", or "maintenance modernization".
-    3. 'source_url' MUST be the exact, direct URL of the news article. NEVER provide a google.com search link.
+    2. Search explicitly for press releases or news articles about "facility expansion", "automation upgrade", "production halted", "new plant setup", or "electrical tender".
+    3. 'source_url' MUST be the exact, direct URL of the news article (e.g., https://www.thehindubusinessline.com/... ). NEVER use google.com, indiamart, or search links.
     4. 'exact_problem_quote' MUST be a verbatim copy-pasted sentence directly from that article proving their active need.
     
-    Return ONLY a valid JSON array of these highly verified, active-intent companies."""
+    Return ONLY a valid JSON array of highly verified, active-intent companies."""
     
     raw_leads = []
     try: 
@@ -107,12 +111,14 @@ def scan_engine(mode):
         st.error(f"⚠️ Scan Failed. Please try clicking scan again. Details: {e}")
         return []
 
-    # THE RUTHLESS FILTER: Deletes any lead where the AI tried to cheat with a Google Search link
+    # THE ANTI-DIRECTORY FILTER: Violently rejects any non-direct link
     strict_leads = []
+    invalid_domains = ["google.", "indiamart", "justdial", "tradeindia", "bing.", "yahoo.", "search"]
+    
     for l in raw_leads:
         src = str(l.get("source_url", "")).lower()
-        if "google.com/search" in src or "google.co" in src:
-            continue # Silently destroy junk leads
+        if any(bad_domain in src for bad_domain in invalid_domains):
+            continue 
             
         l["dist"] = calc_dist(l.get("lat", 18.5204), l.get("lon", 73.8567))
         try:
@@ -124,7 +130,7 @@ def scan_engine(mode):
         strict_leads.append(l)
 
     if not strict_leads:
-        st.error("⚠️ The AI found companies, but they were generic directory listings without active problems. We ruthlessly filtered them out to ensure premium quality. Please click Scan again to force a deeper news search.")
+        st.error("⚠️ AI found targets, but they were generic directory links. We blocked them to ensure premium quality. Please click Scan again to force a deeper news search.")
         return []
 
     return sorted(strict_leads, key=lambda x: x.get("dist", 0))
@@ -171,14 +177,13 @@ def render_leads(leads, mode):
             with t1:
                 st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
                 st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
-                
-                # Prominently displays the IMMEDIATE active problem
                 st.error(f"🔥 **IMMEDIATE ACTIVE REQUIREMENT:**\n{l.get('client_problem')}")
                 
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
+                is_clean_link = src and not any(bad in src.lower() for bad in ["google.", "indiamart", "justdial"])
                 
-                # Because of our ruthless filter, we know this is a REAL article link.
-                if src and q:
+                # UI SAFEGUARD: Only renders text-highlight format if the link is a verified clean article
+                if is_clean_link and q:
                     words = q.split()
                     if len(words) >= 6:
                         prefix = urllib.parse.quote(' '.join(words[:3]))
