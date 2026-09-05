@@ -22,18 +22,18 @@ class Lead(BaseModel):
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
-    source_url: str = Field(description="The exact, direct URL to the real news article or official company website. MUST NOT be a directory or search engine.")
-    exact_problem_quote: str = Field(description="A verbatim, copy-pasted sentence directly from the article or website proving their manufacturing scale, expansion, or operational focus.")
+    source_url: str = Field(description="The exact official website URL of the company. MUST NOT be a search engine or directory link.")
+    exact_problem_quote: str = Field(description="A brief summary of their manufacturing scale, products, or facility capabilities based on search results.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
-    client_problem: str = Field(description="A highly probable active requirement based on their scale (e.g., 'Upgrading legacy MCCs to IP65 for washdown compliance', or 'New automation setup for plant expansion').")
+    client_problem: str = Field(description="Predict a highly probable technical bottleneck this specific factory faces based on their industry (e.g., 'Aging MCC panels', 'Need for IP65 VFDs in washdown areas', 'Continuous operation heat loads').")
     primary_solution: str
     deal_expansion: str
     integration_workflow: str
     resolution_roadmap: str
     contact: Contact
-    call_script_custom: str
+    call_script_custom: str = Field(description="A highly detailed B2B sales call script including: 1. Gatekeeper bypass, 2. Value Proposition targeting their predictive bottleneck, 3. CTA.")
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
@@ -93,19 +93,15 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     
-    prompt = f"""ROLE: Elite B2B Intelligence AI. Target Market: Food/Beverage/Dairy/FMCG in {" and ".join(markets) if markets else "Local (Maharashtra)"}.
-    ACTION REQUIRED: Use Google Search to find {max_leads} REAL manufacturing plants. 
+    prompt = f"""ROLE: Elite B2B Account-Based Marketing (ABM) AI. Target Market: Food/Beverage/Dairy/FMCG in {" and ".join(markets) if markets else "Local (Maharashtra)"}.
+    ACTION REQUIRED: Use Google Search to find {max_leads} ESTABLISHED, MAJOR manufacturing plants in this region. 
     
-    CRITICAL SEARCH STRATEGY:
-    PRIORITY 1: Companies actively expanding, setting up new plants, or heavily investing in infrastructure (search for CapEx news, e.g., "new food plant Maharashtra", "dairy expansion project").
-    PRIORITY 2: Top-tier, massive operational factories (e.g., major dairies, snack manufacturers) that constantly require lifecycle maintenance and automation upgrades.
+    CRITICAL RULES:
+    1. DO NOT limit yourself to companies with breaking news. Find MAJOR, operating food/dairy/FMCG factories (e.g., large-scale dairies, snack factories, beverage bottlers).
+    2. 'source_url' MUST be the company's actual official website URL. DO NOT use google.com/search links.
+    3. You MUST generate a highly targeted sales strategy ('client_problem' & 'primary_solution') for pitching Aryavarta's LV/MCC/PLC panels to this specific facility based on standard food industry challenges (hygiene, washdown compliance, continuous operation loads).
     
-    STRICT DATA RULES:
-    1. 'source_url' MUST be the direct URL to the real news article OR the real official company website.
-    2. 'exact_problem_quote' MUST be a verbatim copy-pasted sentence from that URL showing their scale or expansion.
-    3. 'client_problem' MUST identify a highly probable, realistic need for Aryavarta's LV/MCC/PLC panels based on their operations (e.g., IP65 washdown requirements, legacy equipment upgrades).
-    
-    Return ONLY a valid JSON array of these highly verified companies."""
+    You MUST return EXACTLY {max_leads} profiles. Return ONLY a valid JSON array matching the schema."""
     
     raw_leads = []
     try: 
@@ -114,13 +110,10 @@ def scan_engine(mode):
         st.error(f"⚠️ Scan Failed. Please try clicking scan again. Details: {e}")
         return []
 
-    # THE MASTER JUNK FILTER
     strict_leads = []
-    invalid_domains = ["google.", "indiamart", "justdial", "tradeindia", "bing.", "yahoo.", "zaubacorp", "tofler", "linkedin.", "glassdoor", "ambitionbox", "economictimes.indiatimes.com/company/"]
-    
     for l in raw_leads:
         src = str(l.get("source_url", "")).lower()
-        if any(bad_domain in src for bad_domain in invalid_domains):
+        if "google.com/search" in src:
             continue 
             
         l["dist"] = calc_dist(l.get("lat", 18.5204), l.get("lon", 73.8567))
@@ -131,10 +124,6 @@ def scan_engine(mode):
             l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
         except Exception: pass
         strict_leads.append(l)
-
-    if not strict_leads:
-        st.error("⚠️ AI found targets, but they were generic directory/job links. We ruthlessly blocked them to ensure premium quality. Please click Scan again to force a deeper web search.")
-        return []
 
     return sorted(strict_leads, key=lambda x: x.get("dist", 0))
 
@@ -161,7 +150,7 @@ def render_leads(leads, mode):
         est_str = f"{'$' if exp else '₹'}{est:,} {'USD' if exp else 'INR'}"
         
         c = l.get('contact',{})
-        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your recent operational updates and can directly assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
+        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your facility's scale and can assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
         wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
         
         crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
@@ -178,28 +167,15 @@ def render_leads(leads, mode):
         with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l['dist']} km)", expanded=(i==0)):
             t1, t2, t3, t4 = st.tabs(["🏢 Profile & Tech", "💰 Commercials", "🚀 Outreach", "📝 CRM Notes"])
             with t1:
-                st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
+                st.write(f"**Strategic Vision:** {l.get('strategic_vision')} | **Partner Criteria:** {l.get('partner_criteria')}")
                 st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
                 
-                # Prominently displays the targeted engineering problem
-                st.error(f"🔥 **TARGETED ENGINEERING REQUIREMENT:**\n{l.get('client_problem')}")
+                st.error(f"🔥 **PREDICTIVE ENGINEERING REQUIREMENT:**\n{l.get('client_problem')}")
                 
-                src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
-                is_clean_link = src and not any(bad in src.lower() for bad in ["google.", "indiamart", "justdial"])
-                
-                if is_clean_link and q:
-                    words = q.split()
-                    if len(words) >= 6:
-                        prefix = urllib.parse.quote(' '.join(words[:3]))
-                        suffix = urllib.parse.quote(' '.join(words[-3:]))
-                        frag = f"{prefix},{suffix}"
-                    else:
-                        frag = urllib.parse.quote(q)
-                        
-                    st.markdown(f"🎯 **[Jump into Exact Paragraph on Source Article/Website]({src}#:~:text={frag})**")
-                    st.info(f"**Verbatim Source Evidence:**\n\n\"{q}\"")
-                elif src: 
-                    st.markdown(f"🔗 **[Source Link]({src})**")
+                src = l.get('source_url', '')
+                if src: 
+                    st.markdown(f"🔗 **[Verify Official Company Website]({src})**")
+                    st.info(f"**Operational Intelligence:**\n\n\"{l.get('exact_problem_quote', '')}\"")
                     
                 st.success(f"**Aryavarta Solution:** {l.get('primary_solution')} \n\n**Expand:** {l.get('deal_expansion')}")
             
@@ -231,13 +207,13 @@ st.title("⚡ Aryavarta AI Radar 360")
 tp, ts, tn = st.tabs(["🏭 Panels", "👷 Services", "🤝 Networking"])
 with tp:
     if st.button("🚀 Scan Panel Opportunities", type="primary"): 
-        with st.status("Hunting for Enterprise Projects..."): st.session_state.lp = scan_engine("panels")
+        with st.status("Profiling Enterprise Targets..."): st.session_state.lp = scan_engine("panels")
     if 'lp' in st.session_state: render_leads(st.session_state.lp, "panels")
 with ts:
     if st.button("🚀 Scan Service Contracts", type="primary"): 
-        with st.status("Hunting for Enterprise Projects..."): st.session_state.ls = scan_engine("services")
+        with st.status("Profiling Enterprise Targets..."): st.session_state.ls = scan_engine("services")
     if 'ls' in st.session_state: render_leads(st.session_state.ls, "services")
 with tn:
     if st.button("🤝 Discover Partners", type="primary"): 
-        with st.status("Hunting for Enterprise Projects..."): st.session_state.ln = scan_engine("networking")
+        with st.status("Profiling Enterprise Targets..."): st.session_state.ln = scan_engine("networking")
     if 'ln' in st.session_state: render_leads(st.session_state.ln, "networking")
