@@ -1,11 +1,10 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-import json, urllib.parse, math, time, pandas as pd, requests, re, datetime
+import json, urllib.parse, math, time, pandas as pd, requests, re
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout="wide")
-
 API_KEY = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
 WEBHOOK = st.secrets.get("WEBHOOK_URL", "") if hasattr(st, "secrets") else ""
 
@@ -14,276 +13,142 @@ with st.sidebar:
     if not API_KEY: API_KEY = st.text_input("Gemini API Key:", type="password").strip()
     if not WEBHOOK: WEBHOOK = st.text_input("Sheets Webhook URL:", type="password").strip()
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
-    
-    max_leads = st.slider("Target Intelligence Profiles:", min_value=1, max_value=20, value=10) 
-    
+    max_leads = st.slider("Target Profiles:", 1, 20, 10) 
     st.divider()
-    max_dist_filter = st.slider("🎯 Max Distance Filter (km from Chikhali):", 50, 3000, 3000)
-    test_mode = st.toggle("🧪 Zero-Quota Test Mode", value=False)
+    max_dist_filter = st.slider("🎯 Max Dist (km from Chikhali):", 50, 3000, 3000)
+    test_mode = st.toggle("🧪 Zero-Quota Test Mode", False)
 
-if not API_KEY and not test_mode:
-    st.warning("⚠️ Enter Gemini API Key in sidebar.")
-    st.stop()
-
+if not API_KEY and not test_mode: st.warning("⚠️ API Key needed."); st.stop()
 client = genai.Client(api_key=API_KEY) if not test_mode else None
 PUNE_COORDS = {"lat": 18.6822, "lon": 73.8183}
 CHIKHALI_ADDR = "Gat No. 1610, Dehu Alandi Road, Chikhali, Pune, Maharashtra 411062"
 
 def calc_dist(lat, lon):
-    R = 6371.0
     dlat, dlon = math.radians(lat - PUNE_COORDS["lat"]), math.radians(lon - PUNE_COORDS["lon"])
     a = math.sin(dlat/2)**2 + math.cos(math.radians(PUNE_COORDS["lat"])) * math.cos(math.radians(lat)) * math.sin(dlon/2)**2
-    return round(R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))), 1)
-
-def build_maps_url(comp, loc):
-    return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
+    return round(6371.0 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))), 1)
 
 def call_gemini(prompt):
-    # DIRECT FIX: Using exactly the models Google's servers demanded in the API error.
-    fallback_models = ['gemini-3.6-pro', 'gemini-3.6-flash'] 
-    
-    last_error = ""
-    for model_name in fallback_models:
-        for i in range(3):
+    models = ['gemini-3.6-pro', 'gemini-3.6-flash'] 
+    err = ""
+    for m in models:
+        for _ in range(3):
             try:
                 r = client.models.generate_content(
-                    model=model_name, 
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        tools=[{"google_search": {}}] 
-                    )
+                    model=m, contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json", tools=[{"google_search": {}}])
                 )
-                clean_text = r.text.replace('`' * 3 + 'json', '').replace('`' * 3, '').strip()
-                return json.loads(clean_text)
-            except Exception as e:
-                last_error = str(e)
-                if "404" in last_error:
-                    break 
                 
-                if "429" in last_error or "503" in last_error:
-                    if i == 2:
-                        raise Exception(f"Google Cloud Quota limit hit. If you just paid, wait 15 mins for the budget to sync. Details: {last_error}")
-                    time.sleep(5) 
-                else:
-                    break 
-                    
-    raise Exception(f"API Error. Last error: {last_error}")
+                # FIXED: Failsafe to intercept empty responses before running string replacements
+                if getattr(r, 'text', None) is None:
+                    raise Exception("Empty text returned. (Google Safety Filter block or search timeout)")
+                
+                return json.loads(r.text.replace('`'*3+'json', '').replace('`'*3, '').strip())
+            
+            except Exception as e:
+                err = str(e)
+                if "404" in err: break 
+                if "429" in err or "503" in err: time.sleep(5) 
+                else: break 
+    raise Exception(f"API Error. {err}")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
     if test_mode: return []
+    prompt = f"""ROLE: Elite B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
+    ACTION: Use Google Search tool to find CURRENT 2025/2026 active plant expansions or technical maintenance bottlenecks. DO NOT return past issues.
+    Extract exactly {max_leads} targets. Return ONLY a valid JSON ARRAY of objects. Lat (15.0-28.0), Lon (72.0-85.0).
+    Required keys: company, location, lat(float), lon(float), project, trust_score, source_url (REAL link), exact_problem_quote (5-10 verbatim words from link), company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how our MCC/PLC/VFD solves it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
+    
+    try: leads = call_gemini(prompt)
+    except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); return []
+    if not leads: return []
 
-    target_region = " and ".join(markets)
-    
-    analysis_prompt = f"""
-    ROLE: You are an elite B2B Industrial Intelligence AI. Your ONLY target market is Food, Beverage, FMCG, and Dairy manufacturing plants in {target_region}.
-    
-    ACTION REQUIRED: Use your Google Search tool to search the live internet for CURRENT, ONGOING (2025/2026) food manufacturing plant expansions, new factory setups, or active technical maintenance bottlenecks in {target_region}. 
-    Search for exact phrases like "FMCG plant expansion", "Food factory automation", or "Dairy plant shutdown maintenance".
-    CRITICAL: DO NOT return past or resolved issues. The requirement must be ACTIVE NOW.
-    
-    OUR SERVICES: Aryavarta Automation exclusively manufactures Low Voltage (LV) panels (MCC, PLC, VFD) and provides electrical automation services.
-    
-    Extract exactly {max_leads} highly detailed corporate targets from your live search results. 
-    You MUST return ONLY a valid JSON ARRAY of objects. Do not include markdown blocks.
-    CRITICAL GEOGRAPHY: "lat" MUST be between 15.0 and 28.0. "lon" MUST be between 72.0 and 85.0.
-    
-    Exact keys required per object:
-    - company, location, lat (float), lon (float), project, trust_score
-    - source_url: The EXACT live web URL you found this information on. MUST BE A REAL, WORKING LINK.
-    - exact_problem_quote: A verbatim 5-to-10 word copy-paste strictly from the URL's text proving the problem/expansion exists.
-    - company_overview: Detail their exact food/beverage manufacturing scope.
-    - strategic_vision: Their current scaling/production goals.
-    - partner_criteria: 1 sentence on vendor requirements.
-    - client_problem: Highly technical, verified bottleneck actively happening now (e.g., washdown environment MCC failure, CIP upgrade).
-    - primary_solution: Specifically how our MCC, PLC, VFD, or Relay panel directly solves it.
-    - deal_expansion: Complementary products (cable trays, glands, sensors).
-    - integration_workflow: How it installs in a food-grade environment.
-    - resolution_roadmap: Brief steps.
-    - contact: Object with key_name, key_role, email, phone. (Extract ONLY verified corporate HQ numbers/emails).
-    - call_script_custom: Write a highly professional, multi-stage B2B sales call script to close this specific deal. 
-    """
-    
-    try: 
-        base_leads = call_gemini(analysis_prompt)
-    except Exception as e: 
-        st.error(f"⚠️ Search Failed. {e}")
-        return []
-
-    if not base_leads:
-        return []
-
-    leads = []
-    for l in base_leads:
+    for l in leads:
         try:
             l["dist"] = calc_dist(float(l.get("lat", PUNE_COORDS["lat"])), float(l.get("lon", PUNE_COORDS["lon"])))
-            l["maps"] = build_maps_url(l.get('company',''), l.get('location',''))
-            l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(l.get('company','') + ' ' + l.get('contact',{}).get('key_name',''))}"
-            leads.append(l)
-        except Exception: pass
-
-    leads.sort(key=lambda x: x.get("dist", 0))
-    return leads[:max_leads]
+            dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
+            l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
+            kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
+            l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
+        except Exception: l["dist"] = 9999
+    return sorted([l for l in leads if l.get("dist", 9999) <= max_dist_filter], key=lambda x: x.get("dist", 0))
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
-    if not leads: return 
+    if not leads: return st.warning(f"⚠️ No targets found within {max_dist_filter} km.")
     
-    filtered_leads = [l for l in leads if l['dist'] <= max_dist_filter]
-    if not filtered_leads:
-        st.warning(f"⚠️ Targets were found, but none were within your {max_dist_filter} km filter limit.")
-        return
-    
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("🛡️ Verified Intelligence Profiles", len(filtered_leads))
-    kpi2.metric("🔥 Local Ecosystem Partners (<50km)", sum(1 for l in filtered_leads if l['dist'] < 50))
-    kpi3.metric("📍 Engineering Base", "Chikhali, Pune")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🛡️ Verified Profiles", len(leads))
+    c2.metric("🔥 Local (<50km)", sum(1 for l in leads if l['dist'] < 50))
+    c3.metric("📍 Base", "Chikhali, Pune")
     st.divider()
 
-    crm_sync_data = []
-    for i, l in enumerate(filtered_leads):
-        dist = l['dist']
-        is_export = dist > 1500
-        curr = "USD ($)" if is_export else "INR (₹)"
+    crm_data = []
+    for i, l in enumerate(leads):
+        dist, exp = l['dist'], l['dist'] > 1500
+        qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
+        q_str = f"{qty} Panels" if mode!="services" else f"{qty} Man-Days"
+        est = (qty * (2200 if exp else 175000)) if mode!="services" else (qty * (150 if exp else 6500))
+        est_str = f"{'$' if exp else '₹'}{est:,} {'USD' if exp else 'INR'}"
         
-        p_cnt = st.session_state.get(f"p_cnt_{mode}_{i}", 3)
-        e_cnt = st.session_state.get(f"e_cnt_{mode}_{i}", 7)
-        qty_str = f"{p_cnt} LV Panels" if mode in ["panels", "networking"] else f"{e_cnt} Man-Days"
-        est_val = (p_cnt * (2200 if is_export else 175000)) if mode in ["panels", "networking"] else (e_cnt * (150 if is_export else 6500))
-        est_str = f"{ '$' if is_export else '₹' }{est_val:,} {curr}"
+        c = l.get('contact',{})
+        mail_txt = f"Subject: Automation - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe make IE-compliant LV Panels (MCC/PLC) for food operations. We can solve: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
+        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can solve {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
         
-        pay_term = st.session_state.get(f"pt_{mode}_{i}", "30% Advance, 60% Dispatch, 10% Commissioning")
-        fatsat_val = st.session_state.get(f"fs_{mode}_{i}", "Factory Acceptance Testing (FAT) Included")
-        notes_val = st.session_state.get(f"notes_{mode}_{i}", "")
-        
-        sheet_profile = f"🏭 OVERVIEW:\n{l.get('company_overview', '')}\n\n🎯 VISION:\n{l.get('strategic_vision', '')}\n\n🤝 CRITERIA:\n{l.get('partner_criteria', '')}"
-        sheet_tech = f"⚠️ PROBLEM:\n{l.get('client_problem', '')}\n\n✅ SOLUTION:\n{l.get('primary_solution', '')}\n\n🛣️ ROADMAP:\n{l.get('resolution_roadmap', '')}"
-        sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
-        sheet_score = f"📋 REQUIREMENT: {qty_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {fatsat_val}"
-        
-        corp_email = f"Subject: Automation & LV Panel Empanelment - {l.get('company')}\n\nDear {l.get('contact',{}).get('key_name', 'Procurement Team')},\n\nWe manufacture IE-compliant Low Voltage Panels (MCC, PLC, VFD) specifically designed for food and beverage operations. We understand the operational priority of addressing: {l.get('client_problem', '')}\n\nAryavarta Engineered Solution: {l.get('primary_solution', '')}\nTarget Requirement: {qty_str}\n\nWe welcome the opportunity to submit our profile for your Vendor List.\n\nsupport@aryavartaautomation.com\n+91 8045802403"
-        wa_msg = f"Hello {l.get('contact',{}).get('key_name', 'Sir/Madam')},\nGreetings from Aryavarta Automation (Pune). We specialize in LV/MCC panels for the food industry and can directly solve {str(l.get('client_problem', ''))[:60]}... Can we share our technical catalog? www.aryavartaautomation.com"
-        call_script = l.get('call_script_custom', 'No script generated.')
-        inmail_text = f"Hi {l.get('contact',{}).get('key_name')}, I lead partnerships at Aryavarta Automation. We provide IE-compliant LV/MCC panels for food industries. Given your focus at {l.get('company')}, I'd welcome the opportunity to connect."
+        crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
 
-        sheet_outreach = f"👤 {l.get('contact',{}).get('key_name', '')} | 📧 {l.get('contact',{}).get('email', '')} | 📞 {l.get('contact',{}).get('phone', '')}\n\n📧 EMAIL:\n{corp_email}\n\n💬 WHATSAPP:\n{wa_msg}\n\n📞 CALL SCRIPT:\n{call_script}"
-
-        crm_sync_data.append({
-            "mode": mode.capitalize(), "company": l.get('company', ''), "location": l.get('location', ''),
-            "distance": dist, "project_scope": l.get('project', ''), "panels_mandays": qty_str,
-            "client_problem": l.get('client_problem', ''), "aryavarta_solution": l.get('primary_solution', ''),
-            "value_add": l.get('resolution_roadmap', ''), "commercial_estimate": est_str,
-            "payment_terms": pay_term, "testing_protocol": fatsat_val, 
-            "decision_maker": l.get('contact', {}).get('key_name', ''), "role": l.get('contact', {}).get('key_role', ''),
-            "email": l.get('contact', {}).get('email', ''), "phone": l.get('contact', {}).get('phone', ''),
-            "source_url": l.get('source_url', ''), "sales_notes": notes_val,
-            "company_profile": sheet_profile, "tech_bottleneck": sheet_tech,
-            "deal_expansion": sheet_deal, "commercial_scoring": sheet_score,
-            "ready_outreach": sheet_outreach
-        })
-
-    c1, c2, c3 = st.columns([2, 1, 1])
-    c1.subheader(f"🛡️ Active {len(filtered_leads)} Corporate Dossiers")
-    
-    import requests
-    if c2.button(f"☁️ Sync to Sheets CRM", key=f"s_{mode}"):
+    c1, c2 = st.columns([3, 1])
+    c1.subheader(f"🛡️ Active {len(leads)} Corporate Dossiers")
+    if c2.button("☁️ Sync to CRM", key=f"s_{mode}"):
         if WEBHOOK:
-            success_count = 0
-            for record in crm_sync_data:
-                try:
-                    res = requests.post(WEBHOOK, json=record, timeout=10)
-                    if res.status_code == 200: success_count += 1
-                except Exception: pass
-            st.toast(f"✅ Synced {success_count} detailed dossiers to CRM!")
-        else: st.warning("⚠️ Webhook URL missing.")
+            success = sum(1 for r in crm_data if requests.post(WEBHOOK, json=r, timeout=10).status_code == 200)
+            st.toast(f"✅ Synced {success} dossiers!")
+        else: st.warning("⚠️ Webhook missing.")
 
-    for i, l in enumerate(filtered_leads):
+    for i, l in enumerate(leads):
         with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l['dist']} km)", expanded=(i==0)):
-            t_overview, t_tech, t_deal, t_comm, t_outreach = st.tabs(["🏢 Profile", "🔧 Tech Fix", "📦 Deal Expand", "💰 Commercials", "🚀 Outreach"])
+            t1, t2, t3, t4 = st.tabs(["🏢 Profile & Tech", "💰 Commercials", "🚀 Outreach", "📝 CRM Notes"])
+            with t1:
+                st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
+                st.markdown(f"[📍 Maps]({l.get('maps')}) | [💼 LinkedIn]({l.get('link')})")
+                st.error(f"**Problem:** {l.get('client_problem')}")
+                src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
+                if src and q: st.markdown(f"🎯 **[Direct Source Evidence]({src}#:~:text={urllib.parse.quote(q)})**")
+                elif src: st.markdown(f"🔗 **[Source Link]({src})**")
+                st.success(f"**Solution:** {l.get('primary_solution')} \n\n**Expand:** {l.get('deal_expansion')}")
             
-            with t_overview:
-                st.write(f"**Food/Beverage Operations:**\n{l.get('company_overview')}")
-                st.write(f"**Strategic Vision:**\n{l.get('strategic_vision')}")
-                st.write(f"**Partner Criteria:**\n{l.get('partner_criteria')}")
-                st.markdown(f"[📍 Google Maps]({l.get('maps')}) | [💼 LinkedIn]({l.get('link')})")
+            with t2:
+                col1, col2 = st.columns(2)
+                col1.selectbox("Payment:", ["30% Adv, 60% Disp, 10% Comms", "Net 30"], key=f"pt_{mode}_{i}")
+                col1.selectbox("QA:", ["FAT Included", "SAT Support"], key=f"fs_{mode}_{i}")
+                col2.number_input("Qty/Days:", min_value=1, value=(3 if mode!="services" else 7), key=f"p_{mode}_{i}")
+                col2.info(f"Estimate: {crm_data[i]['est']}")
+            
+            with t3:
+                c = l.get('contact',{})
+                st.info(f"👤 {c.get('key_name')} | ✉️ `{c.get('email')}` | 📞 `{c.get('phone')}`")
+                st.text_area("Email:", mail_txt, height=100, key=f"em_{mode}_{i}")
+                st.link_button("🚀 Gmail", f"https://mail.google.com/mail/?view=cm&fs=1&to={c.get('email','')}&su=Automation&body={urllib.parse.quote(mail_txt)}")
+                st.text_area("WhatsApp:", wa_txt, height=100, key=f"wa_{mode}_{i}")
+                st.link_button("💬 WhatsApp", f"https://api.whatsapp.com/send?phone={re.sub(r'[^0-9]', '', str(c.get('phone','')))}&text={urllib.parse.quote(wa_txt)}")
+                st.text_area("Call Script:", l.get('call_script_custom', ''), height=100, key=f"call_{mode}_{i}")
+            
+            with t4:
+                st.text_area("Sales Notes:", key=f"n_{mode}_{i}")
 
-            with t_tech:
-                st.error(f"**Detailed Food Plant Bottleneck:**\n{l.get('client_problem')}")
-                
-                src_url = l.get('source_url', '')
-                quote = l.get('exact_problem_quote', '')
-                if src_url and src_url.startswith("http") and quote:
-                    pinpoint_link = f"{src_url}#:~:text={urllib.parse.quote(quote)}"
-                    st.markdown(f"🎯 **[Direct Source Evidence (Jumps to highlighted exact problem)]({pinpoint_link})**")
-                    st.info(f"**Verbatim Quote Extracted:** \"...{quote}...\"")
-                elif src_url and src_url.startswith("http"):
-                    st.markdown(f"🔗 **[Company/Project Source Link]({src_url})**")
-                else:
-                    search_q = urllib.parse.quote(f'"{l.get("company", "")}" {l.get("client_problem", "")}')
-                    st.markdown(f"🔍 **[Verify Active Problem via Google Deep Search]({f'https://www.google.com/search?q={search_q}'})**")
-                
-                st.success(f"**Aryavarta LV Panel Solution:**\n{l.get('primary_solution')}")
-                st.info(f"**Resolution Roadmap:**\n{l.get('resolution_roadmap')}")
-
-            with t_deal:
-                st.markdown(f"**Expansion Opportunities:**\n{l.get('deal_expansion')}")
-                st.write(f"**Integration Workflow:**\n{l.get('integration_workflow')}")
-
-            with t_comm:
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    st.selectbox("Payment:", ["30% Advance, 60% Dispatch, 10% Comms", "Net 30"], key=f"pt_{mode}_{i}")
-                    st.selectbox("QA:", ["FAT Included", "SAT Support"], key=f"fs_{mode}_{i}")
-                with col_c2:
-                    if mode in ["panels", "networking"]:
-                        st.number_input("LV Panels Required:", min_value=1, value=3, key=f"p_cnt_{mode}_{i}")
-                    else:
-                        st.number_input("Man-Days:", min_value=1, value=7, key=f"e_cnt_{mode}_{i}")
-                    st.info(f"Budgetary Estimate: {crm_sync_data[i]['commercial_estimate']}")
-
-            with t_outreach:
-                st.info(f"**👤 {l.get('contact',{}).get('key_name')}** | ✉️ `{l.get('contact',{}).get('email')}` | 📞 `{l.get('contact',{}).get('phone')}`")
-                
-                o_em, o_wa, o_call, o_li = st.tabs(["📧 Email", "💬 WhatsApp", "📞 Professional Call Script", "💼 LinkedIn"])
-                
-                with o_em:
-                    st.text_area("Ready Email:", value=corp_email, height=180, key=f"em_{mode}_{i}")
-                    em_to = l.get('contact',{}).get('email','')
-                    gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={em_to if '@' in em_to else ''}&su={urllib.parse.quote('Automation & LV Panel Empanelment - Aryavarta')}&body={urllib.parse.quote(corp_email)}"
-                    st.link_button("🚀 1-Click Send via Gmail", gmail_url, type="primary")
-                    
-                with o_wa:
-                    st.text_area("Ready WhatsApp:", value=wa_msg, height=120, key=f"wa_{mode}_{i}")
-                    clean_phone = re.sub(r'[^0-9]', '', str(l.get('contact',{}).get('phone','')))
-                    wa_url = f"https://api.whatsapp.com/send?phone={clean_phone}&text={urllib.parse.quote(wa_msg)}" if clean_phone else f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_msg)}"
-                    st.link_button("💬 1-Click Send via WhatsApp", wa_url, type="secondary")
-                    
-                with o_call:
-                    st.markdown(call_script)
-                    
-                with o_li:
-                    st.text_area("LinkedIn Connect:", value=inmail_text, height=100, key=f"li_{mode}_{i}")
-                    st.link_button("💼 Open LinkedIn Profile", l.get('link'))
-
-                st.divider()
-                st.text_area("📝 Internal Sales Notes (Syncs to CRM):", key=f"notes_{mode}_{i}")
-
-# --- 4. MAIN TABS ---
-st.title("⚡ Aryavarta Global AI Radar Enterprise 360")
-tab_p, tab_s, tab_n = st.tabs(["🏭 LV Panels & Sundries", "👷 E&I Site Services", "🤝 Strategic Networking"])
-
-with tab_p:
-    if st.button("🚀 Scan Food Industry Panel Opportunities", type="primary", key="bp"):
-        with st.status("Scanning live Google results...", expanded=True): st.session_state.p_leads = scan_engine("panels")
-    if 'p_leads' in st.session_state: render_leads(st.session_state.p_leads, "panels")
-
-with tab_s:
-    if st.button("🚀 Scan Food Plant Maintenance Contracts", type="primary", key="bs"):
-        with st.status("Scanning live Google results...", expanded=True): st.session_state.s_leads = scan_engine("services")
-    if 's_leads' in st.session_state: render_leads(st.session_state.s_leads, "services")
-
-with tab_n:
-    if st.button("🤝 Discover Food/FMCG Partners", type="primary", key="bn"):
-        with st.status("Scanning live Google results...", expanded=True): st.session_state.n_leads = scan_engine("networking")
-    if 'n_leads' in st.session_state: render_leads(st.session_state.n_leads, "networking")
+# --- 4. TABS ---
+st.title("⚡ Aryavarta AI Radar 360")
+tp, ts, tn = st.tabs(["🏭 Panels", "👷 Services", "🤝 Networking"])
+with tp:
+    if st.button("🚀 Scan Panel Opportunities", type="primary"): 
+        with st.status("Scanning..."): st.session_state.lp = scan_engine("panels")
+    if 'lp' in st.session_state: render_leads(st.session_state.lp, "panels")
+with ts:
+    if st.button("🚀 Scan Service Contracts", type="primary"): 
+        with st.status("Scanning..."): st.session_state.ls = scan_engine("services")
+    if 'ls' in st.session_state: render_leads(st.session_state.ls, "services")
+with tn:
+    if st.button("🤝 Discover Partners", type="primary"): 
+        with st.status("Scanning..."): st.session_state.ln = scan_engine("networking")
+    if 'ln' in st.session_state: render_leads(st.session_state.ln, "networking")
