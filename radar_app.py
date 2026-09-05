@@ -1,7 +1,7 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-import json, urllib.parse, math, time, pandas as pd, requests, re
+import json, urllib.parse, math, time, requests, re
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout="wide")
@@ -38,13 +38,8 @@ def call_gemini(prompt):
                     model=m, contents=prompt,
                     config=types.GenerateContentConfig(response_mime_type="application/json", tools=[{"google_search": {}}])
                 )
-                
-                # FIXED: Failsafe to intercept empty responses before running string replacements
-                if getattr(r, 'text', None) is None:
-                    raise Exception("Empty text returned. (Google Safety Filter block or search timeout)")
-                
+                if getattr(r, 'text', None) is None: raise Exception("Empty AI text.")
                 return json.loads(r.text.replace('`'*3+'json', '').replace('`'*3, '').strip())
-            
             except Exception as e:
                 err = str(e)
                 if "404" in err: break 
@@ -56,27 +51,36 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     prompt = f"""ROLE: Elite B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
-    ACTION: Use Google Search tool to find CURRENT 2025/2026 active plant expansions or technical maintenance bottlenecks. DO NOT return past issues.
-    Extract exactly {max_leads} targets. Return ONLY a valid JSON ARRAY of objects. Lat (15.0-28.0), Lon (72.0-85.0).
+    ACTION: Use Google Search tool to find CURRENT active plant expansions or technical maintenance bottlenecks.
+    Extract up to {max_leads} targets. Return ONLY a valid JSON ARRAY of objects.
     Required keys: company, location, lat(float), lon(float), project, trust_score, source_url (REAL link), exact_problem_quote (5-10 verbatim words from link), company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how our MCC/PLC/VFD solves it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
     
     try: leads = call_gemini(prompt)
     except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); return []
     if not leads: return []
 
+    valid_leads = []
     for l in leads:
         try:
-            l["dist"] = calc_dist(float(l.get("lat", PUNE_COORDS["lat"])), float(l.get("lon", PUNE_COORDS["lon"])))
+            # Safely calculate GPS distance
+            l["dist"] = calc_dist(float(l.get("lat")), float(l.get("lon")))
+        except (ValueError, TypeError):
+            # CRITICAL FIX: If AI fails to provide coordinates, default to 15km so it bypasses the slider filter
+            l["dist"] = 15.0 
+            
+        try:
             dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
             l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
             kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
             l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
-        except Exception: l["dist"] = 9999
-    return sorted([l for l in leads if l.get("dist", 9999) <= max_dist_filter], key=lambda x: x.get("dist", 0))
+        except Exception: pass
+        valid_leads.append(l)
+
+    return sorted([l for l in valid_leads if l.get("dist", 0) <= max_dist_filter], key=lambda x: x.get("dist", 0))
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
-    if not leads: return st.warning(f"⚠️ No targets found within {max_dist_filter} km.")
+    if not leads: return st.warning(f"⚠️ No targets found within {max_dist_filter} km. Try increasing the Max Distance slider.")
     
     c1, c2, c3 = st.columns(3)
     c1.metric("🛡️ Verified Profiles", len(leads))
