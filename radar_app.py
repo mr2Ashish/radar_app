@@ -22,9 +22,8 @@ class Lead(BaseModel):
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
-    source_url: str
-    # STRICT DIRECTIVES FOR EXACT PARAGRAPH AND PREMIUM SCRIPT
-    exact_problem_quote: str = Field(description="The exact, full verbatim paragraph (3-5 sentences) copied directly from the source website detailing the technical bottleneck, expansion, or shutdown.")
+    source_url: str = Field(description="The exact URL of the specific news article. NEVER return a google.com/search URL.")
+    exact_problem_quote: str = Field(description="The exact, full verbatim paragraph copied directly from the source website detailing the technical bottleneck.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
@@ -34,7 +33,7 @@ class Lead(BaseModel):
     integration_workflow: str
     resolution_roadmap: str
     contact: Contact
-    call_script_custom: str = Field(description="A highly detailed, professional B2B sales call script. Must include: 1. Gatekeeper bypass, 2. Value Proposition, 3. Addressing their specific bottleneck, 4. Call to Action/Meeting request.")
+    call_script_custom: str = Field(description="A highly detailed B2B sales call script including: 1. Gatekeeper bypass, 2. Value Proposition, 3. Addressing their bottleneck, 4. CTA.")
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
@@ -178,11 +177,17 @@ def render_leads(leads, mode):
                 st.error(f"**Problem:** {l.get('client_problem')}")
                 
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
-                if src and q:
-                    # SMART URL FRAGMENT: Prevents long paragraphs from breaking browser URL length limits
+                
+                # FIXED: Smart UI Routing for Text Fragments
+                if src and "google.com/search" in src:
+                    # If it's a search page or fallback data, do NOT try to highlight text
+                    st.markdown(f"🔍 **[View Local Market Data (Google Search)]({src})**")
+                    st.info(f"**Estimated Scenario:**\n\n\"{q}\"")
+                elif src and q:
+                    # If it's a real article, use precision anchoring for the highlight
                     words = q.split()
-                    if len(words) > 8:
-                        frag = f"{urllib.parse.quote(' '.join(words[:4]))},{urllib.parse.quote(' '.join(words[-4:]))}"
+                    if len(words) >= 6:
+                        frag = f"{urllib.parse.quote(' '.join(words[:3]))},{urllib.parse.quote(' '.join(words[-3:]))}"
                     else:
                         frag = urllib.parse.quote(q)
                     st.markdown(f"🎯 **[Jump to Exact Paragraph on Source Site]({src}#:~:text={frag})**")
@@ -203,7 +208,6 @@ def render_leads(leads, mode):
                 c = l.get('contact',{})
                 st.info(f"👤 {c.get('key_name', 'N/A')} | ✉️ `{c.get('email', 'N/A')}` | 📞 `{c.get('phone', 'N/A')}`")
                 
-                # SCRIPT UI UPGRADE: Prominently displays the full, structured call script
                 st.markdown("### 📞 Master Sales Call Script")
                 st.success(l.get('call_script_custom', 'No script generated.'))
                 st.divider()
