@@ -18,7 +18,7 @@ class Contact(BaseModel):
 class Lead(BaseModel):
     company: str
     location: str
-    lat: float = Field(default=18.5204)
+    lat: float = Field(default=18.6204) # Anchored to Pune MIDC
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
@@ -47,7 +47,7 @@ with st.sidebar:
     markets = st.multiselect("Scan Radius:", ["Local (Maharashtra)", "National (India)", "Global Export"], default=["Local (Maharashtra)"])
     max_leads = st.slider("Target Profiles:", 1, 20, 10) 
     st.divider()
-    max_dist_filter = st.slider("🎯 Max Dist (km from Chikhali):", 50, 3000, 3000)
+    max_dist_filter = st.slider("🎯 Preferred Radius (km from Chikhali):", 50, 3000, 3000)
     test_mode = st.toggle("🧪 Zero-Quota Test Mode", False)
 
 if not API_KEY and not test_mode: st.warning("⚠️ API Key needed."); st.stop()
@@ -61,7 +61,7 @@ def calc_dist(lat, lon):
         a = math.sin(dlat/2)**2 + math.cos(math.radians(PUNE_COORDS["lat"])) * math.cos(math.radians(float(lat))) * math.sin(dlon/2)**2
         return round(6371.0 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))), 1)
     except Exception:
-        return 15.0 
+        return 25.0 
 
 def call_gemini(prompt):
     models = ['gemini-1.5-pro', 'gemini-1.5-flash'] 
@@ -99,9 +99,10 @@ def scan_engine(mode):
     CRITICAL RULES:
     1. DO NOT limit yourself to companies with breaking news. Find MAJOR, operating food/dairy/FMCG factories (e.g., large-scale dairies, snack factories, beverage bottlers).
     2. 'source_url' MUST be the company's actual official website URL. DO NOT use google.com/search links.
-    3. You MUST generate a highly targeted sales strategy ('client_problem' & 'primary_solution') for pitching Aryavarta's LV/MCC/PLC panels to this specific facility based on standard food industry challenges (hygiene, washdown compliance, continuous operation loads).
+    3. 'lat' and 'lon' MUST correspond to their actual plant locations in Maharashtra (e.g., Chakan, Bhosari, Ranjangaon, Nashik).
+    4. You MUST generate a highly targeted sales strategy ('client_problem' & 'primary_solution') for pitching Aryavarta's LV/MCC/PLC panels to this specific facility based on standard food industry challenges.
     
-    You MUST return EXACTLY {max_leads} profiles. Return ONLY a valid JSON array matching the schema."""
+    Return ONLY a valid JSON array matching the schema."""
     
     raw_leads = []
     try: 
@@ -111,12 +112,14 @@ def scan_engine(mode):
         return []
 
     strict_leads = []
+    invalid_domains = ["google.", "indiamart", "justdial", "tradeindia", "bing.", "yahoo.", "zaubacorp", "tofler", "linkedin.", "glassdoor", "ambitionbox", "economictimes"]
+    
     for l in raw_leads:
         src = str(l.get("source_url", "")).lower()
-        if "google.com/search" in src:
+        if any(bad_domain in src for bad_domain in invalid_domains):
             continue 
             
-        l["dist"] = calc_dist(l.get("lat", 18.5204), l.get("lon", 73.8567))
+        l["dist"] = calc_dist(l.get("lat", 18.6204), l.get("lon", 73.8567))
         try:
             dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
             l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
@@ -129,21 +132,22 @@ def scan_engine(mode):
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
-    filtered_leads = [l for l in leads if l.get('dist', 0) <= max_dist_filter]
-    
-    if not filtered_leads:
-        st.warning(f"⚠️ No active targets found strictly within {max_dist_filter} km. Expanding radius to show available profiles.")
-        filtered_leads = leads[:max_leads]
+    if not leads:
+        st.error("⚠️ AI found targets, but they were generic directory links. We ruthlessly blocked them to ensure premium quality. Please click Scan again.")
+        return
+
+    # THE FIX: No more yellow warning errors. The slider is now a dynamic KPI metric.
+    local_count = sum(1 for l in leads if l.get('dist', 0) <= max_dist_filter)
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("🛡️ Premium Enterprise Leads", len(filtered_leads))
-    c2.metric("🔥 Local (<50km)", sum(1 for l in filtered_leads if l['dist'] < 50))
+    c1.metric("🛡️ Premium Enterprise Leads", len(leads))
+    c2.metric(f"🔥 Within {max_dist_filter}km", local_count)
     c3.metric("📍 Base", "Chikhali, Pune")
     st.divider()
 
     crm_data = []
-    for i, l in enumerate(filtered_leads):
-        dist, exp = l['dist'], l['dist'] > 1500
+    for i, l in enumerate(leads):
+        dist, exp = l.get('dist', 0), l.get('dist', 0) > 1500
         qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
         q_str = f"{qty} Panels" if mode!="services" else f"{qty} Man-Days"
         est = (qty * (2200 if exp else 175000)) if mode!="services" else (qty * (150 if exp else 6500))
@@ -163,8 +167,8 @@ def render_leads(leads, mode):
             st.toast(f"✅ Synced {success} dossiers!")
         else: st.warning("⚠️ Webhook missing.")
 
-    for i, l in enumerate(filtered_leads):
-        with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l['dist']} km)", expanded=(i==0)):
+    for i, l in enumerate(leads):
+        with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l.get('dist', 0)} km)", expanded=(i==0)):
             t1, t2, t3, t4 = st.tabs(["🏢 Profile & Tech", "💰 Commercials", "🚀 Outreach", "📝 CRM Notes"])
             with t1:
                 st.write(f"**Strategic Vision:** {l.get('strategic_vision')} | **Partner Criteria:** {l.get('partner_criteria')}")
