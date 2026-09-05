@@ -39,8 +39,8 @@ def build_maps_url(comp, loc):
     return f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={urllib.parse.quote(f'{comp} {loc}')}"
 
 def call_gemini(prompt):
-    # FIXED: Active 2026 Production Models. 1.0 and 1.5 are fully discontinued.
-    fallback_models = ['gemini-3.1-pro', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'] 
+    # DIRECT FIX: Using exactly the models Google's servers demanded in the API error.
+    fallback_models = ['gemini-3.6-pro', 'gemini-3.6-flash'] 
     
     last_error = ""
     for model_name in fallback_models:
@@ -63,12 +63,12 @@ def call_gemini(prompt):
                 
                 if "429" in last_error or "503" in last_error:
                     if i == 2:
-                        raise Exception(f"Google Cloud Quota limit hit. If you just paid, wait 15 mins. Details: {last_error}")
+                        raise Exception(f"Google Cloud Quota limit hit. If you just paid, wait 15 mins for the budget to sync. Details: {last_error}")
                     time.sleep(5) 
                 else:
                     break 
                     
-    raise Exception(f"API Error. Verify your billing account is active. Last error: {last_error}")
+    raise Exception(f"API Error. Last error: {last_error}")
 
 # --- 2. ENGINE ---
 def scan_engine(mode):
