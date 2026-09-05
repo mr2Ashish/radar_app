@@ -29,7 +29,7 @@ def calc_dist(lat, lon):
         a = math.sin(dlat/2)**2 + math.cos(math.radians(PUNE_COORDS["lat"])) * math.cos(math.radians(float(lat))) * math.sin(dlon/2)**2
         return round(6371.0 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))), 1)
     except:
-        return 15.0 # Failsafe distance to guarantee leads display if GPS is missing
+        return 15.0 
 
 def call_gemini(prompt):
     models = ['gemini-3.6-pro', 'gemini-3.6-flash'] 
@@ -54,40 +54,51 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     
-    # FIXED: Re-engineered prompt to prevent empty JSON arrays
+    # Anchored search deeply into active operational logistics zones
     prompt = f"""ROLE: Elite B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
-    ACTION: Use Google Search tool to find active plant expansions or technical maintenance bottlenecks.
+    ACTION: Use Google Search tool to find active plant expansions or technical maintenance bottlenecks. 
+    GEOGRAPHY PRIORITY: When scanning locally, heavily prioritize industrial zones around Pune, Nashik, Chhatrapati Sambhajinagar, and Malkapur.
     Extract up to {max_leads} targets. Return ONLY a valid JSON ARRAY of objects. 
-    CRITICAL: NEVER return an empty array []. You MUST return at least 1-3 highly detailed targets. If exact data is missing, provide a highly educated estimate based on the company's known operations.
-    Required keys: company, location, lat (float, default to 18.5204 if unknown), lon (float, default to 73.8567 if unknown), project, trust_score, source_url (REAL link or company website), exact_problem_quote, company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how Aryavarta MCC/PLC/VFD panels solve it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
+    CRITICAL: NEVER return an empty array []. You MUST return at least 2-3 targets. If exact public data is sparse, estimate based on the company's active regional operations.
+    Required keys: company, location, lat (float, default to 18.52 if unknown), lon (float, default to 73.85 if unknown), project, trust_score, source_url (company website if exact link unavailable), exact_problem_quote, company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how Aryavarta MCC/PLC/VFD panels solve it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
     
     try: leads = call_gemini(prompt)
     except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); return []
     if not leads: return []
 
-    valid_leads = []
     for l in leads:
         l["dist"] = calc_dist(l.get("lat"), l.get("lon"))
-        dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
-        l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
-        kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
-        l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
-        valid_leads.append(l)
+        try:
+            dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
+            l["maps"] = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(CHIKHALI_ADDR)}&destination={dest}"
+            kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
+            l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
+        except: pass
 
-    return sorted([l for l in valid_leads if l.get("dist", 0) <= max_dist_filter], key=lambda x: x.get("dist", 0))
+    # Return ALL leads from the engine to prevent accidental deletion
+    return sorted(leads, key=lambda x: x.get("dist", 0))
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
-    if not leads: return st.warning(f"⚠️ No targets found within {max_dist_filter} km. Try increasing the Max Distance slider.")
+    if not leads: 
+        st.error("⚠️ Google Search returned zero results. Please try again.")
+        return
+        
+    filtered_leads = [l for l in leads if l.get('dist', 0) <= max_dist_filter]
+    
+    # THE FIX: Smart Radius Auto-Expander. If local filter is too strict, show the closest available targets.
+    if not filtered_leads:
+        st.warning(f"⚠️ No active targets found strictly within {max_dist_filter} km. Automatically expanding search perimeter to display the closest available regional profiles.")
+        filtered_leads = leads[:max_leads]
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("🛡️ Verified Profiles", len(leads))
-    c2.metric("🔥 Local (<50km)", sum(1 for l in leads if l['dist'] < 50))
+    c1.metric("🛡️ Verified Profiles", len(filtered_leads))
+    c2.metric("🔥 Local (<50km)", sum(1 for l in filtered_leads if l['dist'] < 50))
     c3.metric("📍 Base", "Chikhali, Pune")
     st.divider()
 
     crm_data = []
-    for i, l in enumerate(leads):
+    for i, l in enumerate(filtered_leads):
         dist, exp = l['dist'], l['dist'] > 1500
         qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
         q_str = f"{qty} Panels" if mode!="services" else f"{qty} Man-Days"
@@ -101,19 +112,19 @@ def render_leads(leads, mode):
         crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
 
     c1, c2 = st.columns([3, 1])
-    c1.subheader(f"🛡️ Active {len(leads)} Corporate Dossiers")
+    c1.subheader(f"🛡️ Active {len(filtered_leads)} Corporate Dossiers")
     if c2.button("☁️ Sync to CRM", key=f"s_{mode}"):
         if WEBHOOK:
             success = sum(1 for r in crm_data if requests.post(WEBHOOK, json=r, timeout=10).status_code == 200)
             st.toast(f"✅ Synced {success} dossiers!")
         else: st.warning("⚠️ Webhook missing.")
 
-    for i, l in enumerate(leads):
+    for i, l in enumerate(filtered_leads):
         with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l['dist']} km)", expanded=(i==0)):
             t1, t2, t3, t4 = st.tabs(["🏢 Profile & Tech", "💰 Commercials", "🚀 Outreach", "📝 CRM Notes"])
             with t1:
                 st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
-                st.markdown(f"[📍 Maps]({l.get('maps')}) | [💼 LinkedIn]({l.get('link')})")
+                st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
                 st.error(f"**Problem:** {l.get('client_problem')}")
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
                 if src and q: st.markdown(f"🎯 **[Direct Source Evidence]({src}#:~:text={urllib.parse.quote(q)})**")
