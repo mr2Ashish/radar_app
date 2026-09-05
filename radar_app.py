@@ -22,19 +22,18 @@ class Lead(BaseModel):
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
-    # STRICT DIRECTIVES FOR REAL WORLD DATA
-    source_url: str = Field(description="The exact, direct URL to the source news article, press release, or company blog. MUST NOT contain 'google.com' or 'google.co.in'.")
-    exact_problem_quote: str = Field(description="A verbatim sentence or paragraph copied directly from the article proving they are currently expanding, upgrading, or facing downtime.")
+    source_url: str = Field(description="MUST be the direct URL to the specific news article, press release, or tender. NEVER a google.com search link.")
+    exact_problem_quote: str = Field(description="A verbatim sentence from the source article proving they are currently expanding, upgrading, or facing downtime.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
-    client_problem: str = Field(description="The immediate, active problem they are facing right now (e.g., aging MCC panels, plant expansion requiring new PLCs, frequent breakdowns).")
+    client_problem: str
     primary_solution: str
     deal_expansion: str
     integration_workflow: str
     resolution_roadmap: str
     contact: Contact
-    call_script_custom: str = Field(description="A highly detailed B2B sales call script including: 1. Gatekeeper bypass, 2. Value Proposition based on their ACTIVE problem, 3. CTA.")
+    call_script_custom: str
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
@@ -89,31 +88,33 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     
+    # THE FIX: Aggressive Intent-Scraping Prompt
     prompt = f"""ROLE: Elite B2B Intelligence AI. Target Market: Food/Beverage/Dairy/FMCG in {" and ".join(markets) if markets else "Local (Maharashtra)"}.
-    ACTION REQUIRED: Use Google Search to find REAL manufacturing plants WITH ACTIVE, IMMEDIATE NEEDS. 
+    ACTION REQUIRED: Use Google Search to find {max_leads} REAL manufacturing plants WITH ACTIVE, IMMEDIATE NEEDS. 
     
     CRITICAL QUALITY CONTROL:
-    1. DO NOT return companies that are operating normally. They MUST have an active requirement right now.
-    2. Search explicitly for news articles, press releases, or tenders combining the location with keywords like: "facility expansion", "automation upgrade", "production halted", "new plant setup", or "maintenance modernization".
-    3. 'source_url' MUST be the exact, direct URL of the news article. NEVER provide a google.com search link.
-    4. 'exact_problem_quote' MUST be a verbatim copy-pasted sentence directly from that article proving their active need.
+    DO NOT just list random active factories. You MUST find companies actively facing problems, undergoing facility expansions, posting tenders/RFPs, or announcing maintenance/automation upgrades. 
+    Search specifically for news combining the location with keywords like "plant expansion", "automation upgrade", "production halted", "electrical tender", or "maintenance shutdown".
+
+    CRITICAL DIRECTIVES FOR SOURCE EVIDENCE:
+    1. 'source_url' MUST be the exact, direct live web address of the news article, press release, or tender document. 
+    2. ABSOLUTELY NO 'google.com/search' LINKS. Do not return generic search engine result pages.
+    3. 'exact_problem_quote' MUST be a verbatim copy-pasted sentence directly from that article proving their active need/problem.
     
-    Return ONLY a valid JSON array of these highly verified, active-intent companies."""
+    Return ONLY a valid JSON array of these active-intent companies."""
     
-    raw_leads = []
+    leads = []
     try: 
-        raw_leads = call_gemini(prompt)
+        leads = call_gemini(prompt)
     except Exception as e: 
         st.error(f"⚠️ Scan Failed. Please try clicking scan again. Details: {e}")
         return []
 
-    # THE RUTHLESS FILTER: Deletes any lead where the AI tried to cheat with a Google Search link
-    strict_leads = []
-    for l in raw_leads:
-        src = str(l.get("source_url", "")).lower()
-        if "google.com/search" in src or "google.co" in src:
-            continue # Silently destroy junk leads
-            
+    if not leads:
+        st.error("⚠️ AI could not find verified active expansion/downtime news right now. Please scan again.")
+        return []
+
+    for l in leads:
         l["dist"] = calc_dist(l.get("lat", 18.5204), l.get("lon", 73.8567))
         try:
             dest = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('location','')))
@@ -121,13 +122,8 @@ def scan_engine(mode):
             kw = urllib.parse.quote(str(l.get('company','')) + ' ' + str(l.get('contact',{}).get('key_name','')))
             l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
         except Exception: pass
-        strict_leads.append(l)
 
-    if not strict_leads:
-        st.error("⚠️ The AI found companies, but they were generic directory listings without active problems. We ruthlessly filtered them out to ensure premium quality. Please click Scan again to force a deeper news search.")
-        return []
-
-    return sorted(strict_leads, key=lambda x: x.get("dist", 0))
+    return sorted(leads, key=lambda x: x.get("dist", 0))
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
@@ -138,7 +134,7 @@ def render_leads(leads, mode):
         filtered_leads = leads[:max_leads]
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("🛡️ Premium Active Leads", len(filtered_leads))
+    c1.metric("🛡️ Active Intent Profiles", len(filtered_leads))
     c2.metric("🔥 Local (<50km)", sum(1 for l in filtered_leads if l['dist'] < 50))
     c3.metric("📍 Base", "Chikhali, Pune")
     st.divider()
@@ -158,7 +154,7 @@ def render_leads(leads, mode):
         crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
 
     c1, c2 = st.columns([3, 1])
-    c1.subheader(f"🛡️ Premium Corporate Dossiers")
+    c1.subheader(f"🛡️ Active {len(filtered_leads)} Corporate Dossiers")
     if c2.button("☁️ Sync to CRM", key=f"s_{mode}"):
         if WEBHOOK:
             success = sum(1 for r in crm_data if requests.post(WEBHOOK, json=r, timeout=10).status_code == 200)
@@ -171,14 +167,16 @@ def render_leads(leads, mode):
             with t1:
                 st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
                 st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
-                
-                # Prominently displays the IMMEDIATE active problem
-                st.error(f"🔥 **IMMEDIATE ACTIVE REQUIREMENT:**\n{l.get('client_problem')}")
+                st.error(f"**Active Problem/Requirement:** {l.get('client_problem')}")
                 
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
                 
-                # Because of our ruthless filter, we know this is a REAL article link.
-                if src and q:
+                # THE FIX: Prevents rendering highlight text if AI disobeys and gives a Google Search link
+                if src and "google.com" in src.lower():
+                    st.warning("⚠️ AI provided a generic search link instead of a direct article.")
+                    st.markdown(f"🔗 **[View Search Results]({src})**")
+                    st.info(f"**Extracted Data:**\n\n\"{q}\"")
+                elif src and q:
                     words = q.split()
                     if len(words) >= 6:
                         prefix = urllib.parse.quote(' '.join(words[:3]))
@@ -192,7 +190,7 @@ def render_leads(leads, mode):
                 elif src: 
                     st.markdown(f"🔗 **[Source Link]({src})**")
                     
-                st.success(f"**Aryavarta Solution:** {l.get('primary_solution')} \n\n**Expand:** {l.get('deal_expansion')}")
+                st.success(f"**Solution:** {l.get('primary_solution')} \n\n**Expand:** {l.get('deal_expansion')}")
             
             with t2:
                 col1, col2 = st.columns(2)
