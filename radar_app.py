@@ -22,8 +22,8 @@ class Lead(BaseModel):
     lon: float = Field(default=73.8567)
     project: str
     trust_score: str
-    source_url: str = Field(description="MUST be the direct URL to the specific news article, press release, or tender. NEVER a google.com search link.")
-    exact_problem_quote: str = Field(description="A verbatim sentence from the source article proving they are currently expanding, upgrading, or facing downtime.")
+    source_url: str = Field(description="The exact, direct live URL of the company website or news article. ABSOLUTELY NEVER return a google.com/search link.")
+    exact_problem_quote: str = Field(description="A full, verbatim, copy-pasted paragraph extracted directly from the source_url detailing their infrastructure, manufacturing capabilities, or technical bottleneck.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
@@ -88,20 +88,17 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     
-    # THE FIX: Aggressive Intent-Scraping Prompt
+    # REAL-WORLD PROMPT: Forces actual URLs and real paragraph extraction. No fake data allowed.
     prompt = f"""ROLE: Elite B2B Intelligence AI. Target Market: Food/Beverage/Dairy/FMCG in {" and ".join(markets) if markets else "Local (Maharashtra)"}.
-    ACTION REQUIRED: Use Google Search to find {max_leads} REAL manufacturing plants WITH ACTIVE, IMMEDIATE NEEDS. 
+    ACTION REQUIRED: You MUST use your Google Search tool to find {max_leads} REAL, active manufacturing plants in this region. 
     
-    CRITICAL QUALITY CONTROL:
-    DO NOT just list random active factories. You MUST find companies actively facing problems, undergoing facility expansions, posting tenders/RFPs, or announcing maintenance/automation upgrades. 
-    Search specifically for news combining the location with keywords like "plant expansion", "automation upgrade", "production halted", "electrical tender", or "maintenance shutdown".
-
     CRITICAL DIRECTIVES FOR SOURCE EVIDENCE:
-    1. 'source_url' MUST be the exact, direct live web address of the news article, press release, or tender document. 
-    2. ABSOLUTELY NO 'google.com/search' LINKS. Do not return generic search engine result pages.
-    3. 'exact_problem_quote' MUST be a verbatim copy-pasted sentence directly from that article proving their active need/problem.
+    1. You MUST visit real company websites or news articles.
+    2. 'source_url' MUST be the exact, direct live web address (e.g., https://www.company.com/about). NEVER use 'google.com/search' links.
+    3. 'exact_problem_quote' MUST be a copy-pasted, verbatim paragraph (at least 2-3 sentences) directly from that exact 'source_url' detailing their manufacturing facilities, infrastructure, or technical requirements.
+    4. 'call_script_custom' MUST be a premium B2B sales script including: Gatekeeper Bypass, Value Proposition, Technical Hook, and CTA.
     
-    Return ONLY a valid JSON array of these active-intent companies."""
+    Do not invent data. Return ONLY a valid JSON array of real companies."""
     
     leads = []
     try: 
@@ -110,8 +107,9 @@ def scan_engine(mode):
         st.error(f"⚠️ Scan Failed. Please try clicking scan again. Details: {e}")
         return []
 
+    # Removed the fake data injection. If it fails to find real leads, it will honestly report 0.
     if not leads:
-        st.error("⚠️ AI could not find verified active expansion/downtime news right now. Please scan again.")
+        st.error("⚠️ AI could not find verified live targets in this exact moment. Please click Scan again to retry the web search.")
         return []
 
     for l in leads:
@@ -134,7 +132,7 @@ def render_leads(leads, mode):
         filtered_leads = leads[:max_leads]
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("🛡️ Active Intent Profiles", len(filtered_leads))
+    c1.metric("🛡️ Verified Profiles", len(filtered_leads))
     c2.metric("🔥 Local (<50km)", sum(1 for l in filtered_leads if l['dist'] < 50))
     c3.metric("📍 Base", "Chikhali, Pune")
     st.divider()
@@ -148,8 +146,8 @@ def render_leads(leads, mode):
         est_str = f"{'$' if exp else '₹'}{est:,} {'USD' if exp else 'INR'}"
         
         c = l.get('contact',{})
-        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your recent operational updates and can directly solve: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
-        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
+        mail_txt = f"Subject: Automation - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe make IE-compliant LV Panels (MCC/PLC) for food operations. We can solve: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
+        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can solve {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
         
         crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
 
@@ -167,26 +165,22 @@ def render_leads(leads, mode):
             with t1:
                 st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
                 st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
-                st.error(f"**Active Problem/Requirement:** {l.get('client_problem')}")
+                st.error(f"**Problem:** {l.get('client_problem')}")
                 
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
                 
-                # THE FIX: Prevents rendering highlight text if AI disobeys and gives a Google Search link
-                if src and "google.com" in src.lower():
-                    st.warning("⚠️ AI provided a generic search link instead of a direct article.")
-                    st.markdown(f"🔗 **[View Search Results]({src})**")
-                    st.info(f"**Extracted Data:**\n\n\"{q}\"")
-                elif src and q:
+                # THE TRUE HIGHLIGHTING FIX: Calculates a precise anchor using the first 4 and last 4 words
+                if src and q:
                     words = q.split()
-                    if len(words) >= 6:
-                        prefix = urllib.parse.quote(' '.join(words[:3]))
-                        suffix = urllib.parse.quote(' '.join(words[-3:]))
+                    if len(words) >= 8:
+                        prefix = urllib.parse.quote(' '.join(words[:4]))
+                        suffix = urllib.parse.quote(' '.join(words[-4:]))
                         frag = f"{prefix},{suffix}"
                     else:
                         frag = urllib.parse.quote(q)
                         
-                    st.markdown(f"🎯 **[Jump into Exact Paragraph on Source Article]({src}#:~:text={frag})**")
-                    st.info(f"**Verbatim Source Evidence:**\n\n\"{q}\"")
+                    st.markdown(f"🎯 **[Jump into Exact Paragraph on Source Website]({src}#:~:text={frag})**")
+                    st.info(f"**Verbatim Extracted Evidence:**\n\n\"{q}\"")
                 elif src: 
                     st.markdown(f"🔗 **[Source Link]({src})**")
                     
@@ -220,13 +214,13 @@ st.title("⚡ Aryavarta AI Radar 360")
 tp, ts, tn = st.tabs(["🏭 Panels", "👷 Services", "🤝 Networking"])
 with tp:
     if st.button("🚀 Scan Panel Opportunities", type="primary"): 
-        with st.status("Hunting for Active Projects..."): st.session_state.lp = scan_engine("panels")
+        with st.status("Scanning Live Internet..."): st.session_state.lp = scan_engine("panels")
     if 'lp' in st.session_state: render_leads(st.session_state.lp, "panels")
 with ts:
     if st.button("🚀 Scan Service Contracts", type="primary"): 
-        with st.status("Hunting for Active Projects..."): st.session_state.ls = scan_engine("services")
+        with st.status("Scanning Live Internet..."): st.session_state.ls = scan_engine("services")
     if 'ls' in st.session_state: render_leads(st.session_state.ls, "services")
 with tn:
     if st.button("🤝 Discover Partners", type="primary"): 
-        with st.status("Hunting for Active Projects..."): st.session_state.ln = scan_engine("networking")
+        with st.status("Scanning Live Internet..."): st.session_state.ln = scan_engine("networking")
     if 'ln' in st.session_state: render_leads(st.session_state.ln, "networking")
