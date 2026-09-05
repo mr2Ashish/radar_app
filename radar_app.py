@@ -205,6 +205,10 @@ def render_leads(leads, mode):
         qa_term = st.session_state.get(f"fs_{mode}_{i}", "FAT Included")
         sales_notes = st.session_state.get(f"n_{mode}_{i}", "")
         
+        # STRICT PHONE SANITIZER: Formats phone safely for Google Sheets JSON webhooks
+        raw_phone = str(c.get('phone', ''))
+        clean_phone = "'" + re.sub(r'[^0-9+]', '', raw_phone) if raw_phone else "N/A"
+
         mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your facility's scale and can assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
         wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
 
@@ -213,10 +217,9 @@ def render_leads(leads, mode):
         sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
         sheet_score = f"📋 REQUIREMENT: {q_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {qa_term}"
         
-        # FIXED: Fully compiling contact details, master script, email copy, and WhatsApp copy into the outreach column
         sheet_outreach = (
             f"👤 CONTACT: {c.get('key_name', 'N/A')} ({c.get('key_role', 'N/A')})\n"
-            f"📧 EMAIL: {c.get('email', 'N/A')} | 📞 PHONE: {c.get('phone', 'N/A')}\n\n"
+            f"📧 EMAIL: {c.get('email', 'N/A')} | 📞 PHONE: {clean_phone}\n\n"
             f"📞 MASTER CALL SCRIPT:\n{l.get('call_script_custom', 'N/A')}\n\n"
             f"✉️ EMAIL TEMPLATE:\n{mail_txt}\n\n"
             f"💬 WHATSAPP TEMPLATE:\n{wa_txt}"
@@ -233,13 +236,13 @@ def render_leads(leads, mode):
             "commercial_estimate": est_str,
             "decision_maker": c.get('key_name', ''),
             "email": c.get('email', ''),
-            "phone": c.get('phone', ''),
+            "phone": clean_phone,  # Sanitized clean phone string
             "source_url": l.get('source_url', ''),
             "company_profile": sheet_profile,     
             "tech_bottleneck": sheet_tech,        
             "deal_expansion": sheet_deal,         
             "commercial_scoring": sheet_score,    
-            "ready_outreach": sheet_outreach,     # Fully packed outreach payload
+            "ready_outreach": sheet_outreach,     
             "sales_notes": sales_notes            
         })
 
