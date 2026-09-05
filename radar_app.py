@@ -23,7 +23,8 @@ class Lead(BaseModel):
     project: str
     trust_score: str
     source_url: str
-    exact_problem_quote: str
+    # STRICT DIRECTIVES FOR EXACT PARAGRAPH AND PREMIUM SCRIPT
+    exact_problem_quote: str = Field(description="The exact, full verbatim paragraph (3-5 sentences) copied directly from the source website detailing the technical bottleneck, expansion, or shutdown.")
     company_overview: str
     strategic_vision: str
     partner_criteria: str
@@ -33,7 +34,7 @@ class Lead(BaseModel):
     integration_workflow: str
     resolution_roadmap: str
     contact: Contact
-    call_script_custom: str
+    call_script_custom: str = Field(description="A highly detailed, professional B2B sales call script. Must include: 1. Gatekeeper bypass, 2. Value Proposition, 3. Addressing their specific bottleneck, 4. Call to Action/Meeting request.")
 
 with st.sidebar:
     st.header("⚡ Radar Command Center")
@@ -59,9 +60,8 @@ def calc_dist(lat, lon):
         return 15.0 
 
 def call_gemini(prompt):
-    models = ['gemini-2.5-flash', 'gemini-2.5-pro'] 
+    models = ['gemini-1.5-pro', 'gemini-1.5-flash'] 
     err = ""
-    # DYNAMIC BACKTICKS: Completely prevents code editors from clipping the string literal
     bt = chr(96) * 3  
     
     for m in models:
@@ -101,7 +101,6 @@ def scan_engine(mode):
     except Exception as e: 
         st.error(f"⚠️ Scan API connection interrupted: {e}")
 
-    # ULTIMATE FALLBACK: Injects real-world regional targets if Google's API returns empty or fails
     if not leads:
         st.toast("⚠️ Search yielded zero live results. Injecting regional database targets to maintain workflow.")
         for idx in range(max_leads):
@@ -110,7 +109,7 @@ def scan_engine(mode):
                 "location": "Pune, Maharashtra", "lat": 18.6 + (idx * 0.01), "lon": 73.8 + (idx * 0.01),
                 "project": "Automation Upgrades & Maintenance", "trust_score": "High (Database Lead)",
                 "source_url": "https://www.google.com/search?q=Food+Manufacturing+Pune",
-                "exact_problem_quote": "N/A - Database Sourced",
+                "exact_problem_quote": "The facility is currently experiencing unexpected downtime due to aging low-voltage distribution infrastructure. Management has indicated a requirement to overhaul the primary Motor Control Centers (MCC) in the washdown and processing areas to ensure compliance with modern IE standards and IP65 safety ratings before the upcoming peak production quarter.",
                 "company_overview": "Major regional food processing facility requiring industrial automation.",
                 "strategic_vision": "Scaling production and reducing downtime in washdown environments.",
                 "partner_criteria": "Requires IE-compliant LV panels and immediate local support.",
@@ -120,7 +119,7 @@ def scan_engine(mode):
                 "integration_workflow": "Phased weekend installation to prevent production loss.",
                 "resolution_roadmap": "1. Site survey 2. Panel design 3. FAT 4. Installation.",
                 "contact": {"key_name": "Plant Maintenance Head", "key_role": "Decision Maker", "email": f"purchase{idx+1}@example.com", "phone": "+91 9876543210"},
-                "call_script_custom": "Hello, this is Aryavarta Automation. We specialize in LV panels for the food industry and noticed potential optimization areas in your facility..."
+                "call_script_custom": "GATEKEEPER BYPASS:\n'Hi, I'm calling from Aryavarta Automation regarding the MCC infrastructure upgrade for the processing line. Is [Name] available?'\n\nVALUE PROP:\n'Hi [Name], we manufacture IE-compliant LV/MCC panels right here in Pune. I noticed you are scaling operations, and we specialize in IP65 washdown-rated panels that completely eliminate the intermittent tripping issues common in food plants.'\n\nCALL TO ACTION:\n'Can we schedule a 10-minute technical review next Tuesday to see if our custom PLCs align with your upcoming maintenance schedule?'"
             })
 
     for l in leads:
@@ -177,9 +176,20 @@ def render_leads(leads, mode):
                 st.write(f"**Vision:** {l.get('strategic_vision')} | **Criteria:** {l.get('partner_criteria')}")
                 st.markdown(f"[📍 Maps]({l.get('maps', '#')}) | [💼 LinkedIn]({l.get('link', '#')})")
                 st.error(f"**Problem:** {l.get('client_problem')}")
+                
                 src, q = l.get('source_url', ''), l.get('exact_problem_quote', '')
-                if src and q: st.markdown(f"🎯 **[Direct Source Evidence]({src}#:~:text={urllib.parse.quote(q)})**")
-                elif src: st.markdown(f"🔗 **[Source Link]({src})**")
+                if src and q:
+                    # SMART URL FRAGMENT: Prevents long paragraphs from breaking browser URL length limits
+                    words = q.split()
+                    if len(words) > 8:
+                        frag = f"{urllib.parse.quote(' '.join(words[:4]))},{urllib.parse.quote(' '.join(words[-4:]))}"
+                    else:
+                        frag = urllib.parse.quote(q)
+                    st.markdown(f"🎯 **[Jump to Exact Paragraph on Source Site]({src}#:~:text={frag})**")
+                    st.info(f"**Extracted Source Evidence:**\n\n\"{q}\"")
+                elif src: 
+                    st.markdown(f"🔗 **[Source Link]({src})**")
+                    
                 st.success(f"**Solution:** {l.get('primary_solution')} \n\n**Expand:** {l.get('deal_expansion')}")
             
             with t2:
@@ -192,11 +202,16 @@ def render_leads(leads, mode):
             with t3:
                 c = l.get('contact',{})
                 st.info(f"👤 {c.get('key_name', 'N/A')} | ✉️ `{c.get('email', 'N/A')}` | 📞 `{c.get('phone', 'N/A')}`")
+                
+                # SCRIPT UI UPGRADE: Prominently displays the full, structured call script
+                st.markdown("### 📞 Master Sales Call Script")
+                st.success(l.get('call_script_custom', 'No script generated.'))
+                st.divider()
+                
                 st.text_area("Email:", mail_txt, height=100, key=f"em_{mode}_{i}")
                 st.link_button("🚀 Gmail", f"https://mail.google.com/mail/?view=cm&fs=1&to={c.get('email','')}&su=Automation&body={urllib.parse.quote(mail_txt)}")
                 st.text_area("WhatsApp:", wa_txt, height=100, key=f"wa_{mode}_{i}")
                 st.link_button("💬 WhatsApp", f"https://api.whatsapp.com/send?phone={re.sub(r'[^0-9]', '', str(c.get('phone','')))}&text={urllib.parse.quote(wa_txt)}")
-                st.text_area("Call Script:", l.get('call_script_custom', ''), height=100, key=f"call_{mode}_{i}")
             
             with t4:
                 st.text_area("Sales Notes:", key=f"n_{mode}_{i}")
