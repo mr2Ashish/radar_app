@@ -54,17 +54,36 @@ def call_gemini(prompt):
 def scan_engine(mode):
     if test_mode: return []
     
-    # Anchored search deeply into active operational logistics zones
+    # FIXED: Relaxed constraints. AI will now pull standard operational factories if "news" is missing.
     prompt = f"""ROLE: Elite B2B AI. Target: Food/Beverage/Dairy/FMCG in {" and ".join(markets)}.
-    ACTION: Use Google Search tool to find active plant expansions or technical maintenance bottlenecks. 
-    GEOGRAPHY PRIORITY: When scanning locally, heavily prioritize industrial zones around Pune, Nashik, Chhatrapati Sambhajinagar, and Malkapur.
+    ACTION: Use Google Search to identify major manufacturing plants. Look for recent expansions OR standard active operational factories.
+    CRITICAL: NEVER RETURN AN EMPTY ARRAY []. If recent news is unavailable, identify established large-scale factories (e.g., major dairies, snack plants) in the region and generate profiles detailing their highly probable MCC/PLC automation needs.
     Extract up to {max_leads} targets. Return ONLY a valid JSON ARRAY of objects. 
-    CRITICAL: NEVER return an empty array []. You MUST return at least 2-3 targets. If exact public data is sparse, estimate based on the company's active regional operations.
     Required keys: company, location, lat (float, default to 18.52 if unknown), lon (float, default to 73.85 if unknown), project, trust_score, source_url (company website if exact link unavailable), exact_problem_quote, company_overview, strategic_vision, partner_criteria, client_problem, primary_solution (how Aryavarta MCC/PLC/VFD panels solve it), deal_expansion, integration_workflow, resolution_roadmap, contact (key_name, key_role, email, phone), call_script_custom."""
     
     try: leads = call_gemini(prompt)
-    except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); return []
-    if not leads: return []
+    except Exception as e: st.error(f"⚠️ Scan Failed: {e}"); leads = []
+    
+    # FIXED: The Ultimate Failsafe. If the AI completely flatlines, inject a seed profile to keep the app running.
+    if not leads: 
+        st.toast("⚠️ Google Search returned zero live results. Injecting Regional Seed Profile to maintain CRM workflow.")
+        leads = [{
+            "company": "Regional FMCG/Dairy Plant (Auto-Recovered Lead)",
+            "location": "Pune, Maharashtra", "lat": 18.5204, "lon": 73.8567,
+            "project": "Automation Upgrades & Maintenance", "trust_score": "Estimated Base",
+            "source_url": "https://www.google.com/search?q=Food+Manufacturing+Pune",
+            "exact_problem_quote": "N/A - System Estimated Profile",
+            "company_overview": "Major regional food processing facility requiring industrial automation.",
+            "strategic_vision": "Scaling production and reducing downtime in washdown environments.",
+            "partner_criteria": "Requires IE-compliant LV panels and immediate local support.",
+            "client_problem": "Aging MCC panels causing intermittent production line halts.",
+            "primary_solution": "Aryavarta custom MCC/PLC panel replacement with IP65 washdown rating.",
+            "deal_expansion": "Cable trays, field sensors, and VFD integration.",
+            "integration_workflow": "Phased weekend installation to prevent production loss.",
+            "resolution_roadmap": "1. Site survey 2. Panel design 3. FAT 4. Installation.",
+            "contact": {"key_name": "Plant Maintenance Head", "key_role": "Decision Maker", "email": "info@example.com", "phone": "+91 0000000000"},
+            "call_script_custom": "Hello, this is Aryavarta Automation. We specialize in LV panels for the food industry and noticed potential optimization areas in your facility..."
+        }]
 
     for l in leads:
         l["dist"] = calc_dist(l.get("lat"), l.get("lon"))
@@ -75,20 +94,14 @@ def scan_engine(mode):
             l["link"] = f"https://www.linkedin.com/search/results/people/?keywords={kw}"
         except: pass
 
-    # Return ALL leads from the engine to prevent accidental deletion
     return sorted(leads, key=lambda x: x.get("dist", 0))
 
 # --- 3. UI RENDERER ---
 def render_leads(leads, mode):
-    if not leads: 
-        st.error("⚠️ Google Search returned zero results. Please try again.")
-        return
-        
     filtered_leads = [l for l in leads if l.get('dist', 0) <= max_dist_filter]
     
-    # THE FIX: Smart Radius Auto-Expander. If local filter is too strict, show the closest available targets.
     if not filtered_leads:
-        st.warning(f"⚠️ No active targets found strictly within {max_dist_filter} km. Automatically expanding search perimeter to display the closest available regional profiles.")
+        st.warning(f"⚠️ No targets found strictly within {max_dist_filter} km. Displaying closest available profiles.")
         filtered_leads = leads[:max_leads]
     
     c1, c2, c3 = st.columns(3)
