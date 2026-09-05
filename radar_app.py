@@ -109,7 +109,6 @@ def scan_engine(mode):
     except Exception as e: 
         st.toast(f"⚠️ Live scan interrupted. Engaging backup database. ({e})")
 
-    # THE RUTHLESS FILTER
     valid_leads = []
     invalid_domains = ["google.", "indiamart", "justdial", "tradeindia", "bing.", "yahoo.", "zaubacorp", "tofler", "linkedin.", "glassdoor", "ambitionbox", "economictimes"]
     
@@ -119,7 +118,6 @@ def scan_engine(mode):
             continue 
         valid_leads.append(l)
 
-    # THE GOLD-STANDARD BACKFILL: Real Maharashtra ABM Targets to guarantee a full dashboard
     gold_database = [
         {
             "company": "Schreiber Dynamix Dairies", "location": "Baramati, Maharashtra", "lat": 18.1500, "lon": 74.5800,
@@ -168,7 +166,6 @@ def scan_engine(mode):
         }
     ]
 
-    # Dynamically fill missing slots so you ALWAYS get exactly `max_leads`
     if len(valid_leads) < max_leads:
         needed = max_leads - len(valid_leads)
         valid_leads.extend(gold_database[:needed])
@@ -195,28 +192,68 @@ def render_leads(leads, mode):
     st.divider()
 
     crm_data = []
+    
+    # 1. First Pass: Generate the rich-text payload for the Webhook CRM Sync
     for i, l in enumerate(leads):
         dist, exp = l.get('dist', 0), l.get('dist', 0) > 1500
         qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
         q_str = f"{qty} Panels" if mode!="services" else f"{qty} Man-Days"
         est = (qty * (2200 if exp else 175000)) if mode!="services" else (qty * (150 if exp else 6500))
         est_str = f"{'$' if exp else '₹'}{est:,} {'USD' if exp else 'INR'}"
-        
         c = l.get('contact',{})
-        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your facility's scale and can assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
-        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
         
-        crm_data.append({"company": l.get('company'), "location": l.get('location'), "dist": dist, "est": est_str, "contact": c.get('key_name'), "email": c.get('email'), "phone": c.get('phone')})
+        pay_term = st.session_state.get(f"pt_{mode}_{i}", "30% Adv, 60% Disp, 10% Comms")
+        qa_term = st.session_state.get(f"fs_{mode}_{i}", "FAT Included")
+        sales_notes = st.session_state.get(f"n_{mode}_{i}", "")
+        
+        # RICH TEXT COMPILATION FOR GOOGLE SHEETS
+        sheet_profile = f"🏭 OVERVIEW:\n{l.get('company_overview', '')}\n\n🎯 VISION:\n{l.get('strategic_vision', '')}\n\n🤝 CRITERIA:\n{l.get('partner_criteria', '')}"
+        sheet_tech = f"⚠️ PROBLEM:\n{l.get('client_problem', '')}\n\n✅ SOLUTION:\n{l.get('primary_solution', '')}\n\n🛣️ ROADMAP:\n{l.get('resolution_roadmap', '')}"
+        sheet_deal = f"📦 EXPANSION:\n{l.get('deal_expansion', '')}\n\n⚙️ WORKFLOW:\n{l.get('integration_workflow', '')}"
+        sheet_score = f"📋 REQUIREMENT: {q_str}\n💰 ESTIMATE: {est_str}\n\nTerms: {pay_term}\nQA: {qa_term}"
+        sheet_outreach = f"👤 {c.get('key_name', 'N/A')} | 📧 {c.get('email', 'N/A')} | 📞 {c.get('phone', 'N/A')}\n\n📞 SCRIPT:\n{l.get('call_script_custom', '')}"
+
+        crm_data.append({
+            "mode": mode.capitalize(),
+            "company": l.get('company', ''),
+            "location": l.get('location', ''),
+            "distance": dist,
+            "project_scope": l.get('project', ''),
+            "client_problem": l.get('client_problem', ''),
+            "aryavarta_solution": l.get('primary_solution', ''),
+            "commercial_estimate": est_str,
+            "decision_maker": c.get('key_name', ''),
+            "email": c.get('email', ''),
+            "phone": c.get('phone', ''),
+            "source_url": l.get('source_url', ''),
+            # CRITICAL FIX: Re-attaching the rich text tabs to the CRM Webhook Payload
+            "company_profile": sheet_profile,     
+            "tech_bottleneck": sheet_tech,        
+            "deal_expansion": sheet_deal,         
+            "commercial_scoring": sheet_score,    
+            "ready_outreach": sheet_outreach,     
+            "sales_notes": sales_notes            
+        })
 
     c1, c2 = st.columns([3, 1])
     c1.subheader(f"🛡️ Premium Corporate Dossiers")
     if c2.button("☁️ Sync to CRM", key=f"s_{mode}"):
         if WEBHOOK:
             success = sum(1 for r in crm_data if requests.post(WEBHOOK, json=r, timeout=10).status_code == 200)
-            st.toast(f"✅ Synced {success} dossiers!")
+            st.toast(f"✅ Synced {success} dossiers entirely to Google Sheets CRM!")
         else: st.warning("⚠️ Webhook missing.")
 
+    # 2. Second Pass: Render the actual Streamlit UI expanders
     for i, l in enumerate(leads):
+        dist, exp = l.get('dist', 0), l.get('dist', 0) > 1500
+        qty = st.session_state.get(f"p_{mode}_{i}", 3 if mode!="services" else 7)
+        q_str = f"{qty} Panels" if mode!="services" else f"{qty} Man-Days"
+        est = (qty * (2200 if exp else 175000)) if mode!="services" else (qty * (150 if exp else 6500))
+        est_str = f"{'$' if exp else '₹'}{est:,} {'USD' if exp else 'INR'}"
+        c = l.get('contact',{})
+        mail_txt = f"Subject: Automation Support - {l.get('company')}\n\nDear {c.get('key_name', 'Team')},\nWe manufacture IE-compliant LV Panels (MCC/PLC) for food operations. We noticed your facility's scale and can assist with: {l.get('client_problem')}\n\nAryavarta Solution: {l.get('primary_solution')}\nReq: {q_str}\n\nsupport@aryavartaautomation.com\n+91 8045802403"
+        wa_txt = f"Hi {c.get('key_name', '')}, Greetings from Aryavarta Automation. We specialize in LV panels for food plants & can assist with {str(l.get('client_problem',''))[:60]}... View catalog: www.aryavartaautomation.com"
+        
         with st.expander(f"#{i+1}. {l.get('company')} — {l.get('location')} ({l.get('dist', 0)} km)", expanded=(i==0)):
             t1, t2, t3, t4 = st.tabs(["🏢 Profile & Tech", "💰 Commercials", "🚀 Outreach", "📝 CRM Notes"])
             with t1:
@@ -237,10 +274,9 @@ def render_leads(leads, mode):
                 col1.selectbox("Payment:", ["30% Adv, 60% Disp, 10% Comms", "Net 30"], key=f"pt_{mode}_{i}")
                 col1.selectbox("QA:", ["FAT Included", "SAT Support"], key=f"fs_{mode}_{i}")
                 col2.number_input("Qty/Days:", min_value=1, value=(3 if mode!="services" else 7), key=f"p_{mode}_{i}")
-                col2.info(f"Estimate: {crm_data[i]['est']}")
+                col2.info(f"Estimate: {est_str}")
             
             with t3:
-                c = l.get('contact',{})
                 st.info(f"👤 {c.get('key_name', 'N/A')} | ✉️ `{c.get('email', 'N/A')}` | 📞 `{c.get('phone', 'N/A')}`")
                 
                 st.markdown("### 📞 Master Sales Call Script")
