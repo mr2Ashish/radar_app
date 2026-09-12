@@ -9,7 +9,6 @@ st.set_page_config(page_title="Aryavarta AI Radar 360", page_icon="⚡", layout=
 API_KEY = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
 WEBHOOK = st.secrets.get("WEBHOOK_URL", "") if hasattr(st, "secrets") else ""
 
-# State initialization for deduplication
 if 'synced_companies' not in st.session_state:
     st.session_state.synced_companies = []
 
@@ -76,15 +75,17 @@ def call_gemini(prompt):
     for m in models:
         for _ in range(3):
             try:
-                r = client.models.generate_content(
-                    model=m, 
-                    contents=prompt,
+                # FIXED: Uses chat.send_message instead of models.generate_content for AFC
+                chat = client.chats.create(
+                    model=m,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         response_schema=list[Lead],
                         tools=[{"google_search": {}}]
                     )
                 )
+                r = chat.send_message(prompt)
+                
                 if not getattr(r, 'text', None): raise Exception("Empty AI text.")
                 clean_json = r.text.replace(bt + 'json', '').replace(bt, '').strip()
                 return json.loads(clean_json)
@@ -238,7 +239,6 @@ def render_leads(leads):
                 resp = requests.post(WEBHOOK, json=r, timeout=10)
                 if resp.status_code == 200:
                     success += 1
-                    # Deduplication: Add synced company to session state
                     if r["company"] not in st.session_state.synced_companies:
                         st.session_state.synced_companies.append(r["company"])
             st.toast(f"✅ Synced {success} dossiers entirely to Google Sheets CRM!")
