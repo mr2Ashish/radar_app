@@ -68,7 +68,7 @@ def calc_dist(lat, lon):
         return 25.0 
 
 def call_gemini(prompt):
-    models = ['gemini-2.0-flash', 'gemini-2.5-flash'] 
+    models = ['gemini-3.6-flash', 'gemini-1.5-pro'] 
     err = ""
     bt = chr(96) * 3  
     
