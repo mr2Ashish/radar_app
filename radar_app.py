@@ -68,14 +68,13 @@ def calc_dist(lat, lon):
         return 25.0 
 
 def call_gemini(prompt):
-    models = ['gemini-1.5-flash', 'gemini-1.5-pro'] 
+    models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'] 
     err = ""
     bt = chr(96) * 3  
     
     for m in models:
         for _ in range(3):
             try:
-                # FIXED: Uses chat.send_message instead of models.generate_content for AFC
                 chat = client.chats.create(
                     model=m,
                     config=types.GenerateContentConfig(
@@ -91,8 +90,12 @@ def call_gemini(prompt):
                 return json.loads(clean_json)
             except Exception as e:
                 err = str(e)
-                if "429" in err or "503" in err: time.sleep(5) 
-                else: break 
+                if "429" in err or "503" in err: 
+                    time.sleep(5) 
+                elif "404" in err:
+                    break 
+                else: 
+                    break 
     raise Exception(f"Google Cloud Error: {err}")
 
 # --- 2. ENGINE ---
